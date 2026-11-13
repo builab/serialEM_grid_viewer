@@ -1,0 +1,2363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mdoc Stage Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* layout: top bar of open actions | left rail with layers + calibration | stage canvas in µm with a floating inspector */
+  --bg:#e9edf0;
+  --panel:#f7f9fa;
+  --ink:#172026;
+  --muted:#58656e;
+  --line:#d0d8dd;
+  --accent:#0a6f7d;
+  --accent-ink:#ffffff;
+  --canvas:#dfe5e9;
+  --gridline:rgba(23,32,38,.07);
+  --gridring:rgba(10,111,125,.35);
+  --warn:#9a5b00;
+  --font-display:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1417; --panel:#151c20; --ink:#dbe4e8; --muted:#8c9aa3; --line:#28333a;
+    --accent:#3bb4c4; --accent-ink:#06191c; --canvas:#0b1013;
+    --gridline:rgba(219,228,232,.06); --gridring:rgba(59,180,196,.4); --warn:#e0a54a;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1417; --panel:#151c20; --ink:#dbe4e8; --muted:#8c9aa3; --line:#28333a;
+  --accent:#3bb4c4; --accent-ink:#06191c; --canvas:#0b1013;
+  --gridline:rgba(219,228,232,.06); --gridring:rgba(59,180,196,.4); --warn:#e0a54a;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.45 var(--font-body)}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.app{display:grid;grid-template-columns:330px 1fr;grid-template-rows:auto 1fr;height:100%}
+header{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font:600 16px/1 var(--font-display);margin:0;letter-spacing:.01em;text-wrap:balance}
+header h1 small{font:400 12px var(--font-mono);color:var(--muted);margin-left:8px}
+.opens{display:flex;flex-wrap:wrap;gap:6px}
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:6px 10px;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn .sw{width:9px;height:9px;border-radius:2px;display:inline-block}
+.btn.small{padding:3px 8px;font-size:12px}
+.spacer{flex:1}
+
+aside{border-right:1px solid var(--line);background:var(--panel);overflow:auto;padding:14px 14px 24px;display:flex;flex-direction:column;gap:18px}
+.sec h2{font:600 11px/1 var(--font-body);text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:0 0 8px;display:flex;align-items:center;gap:8px}
+.sec h2 .act{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500}
+.empty{color:var(--muted);font-size:13px;padding:10px;border:1px dashed var(--line);border-radius:6px}
+
+.layer{border:1px solid var(--line);border-radius:7px;background:var(--bg);margin-bottom:8px;overflow:hidden}
+.layer-head{display:flex;align-items:center;gap:8px;padding:7px 8px}
+.layer-head input[type=color]{width:20px;height:20px;padding:0;border:none;background:none;cursor:pointer}
+.layer-head input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+.layer-head input[type=color]::-webkit-color-swatch{border:1px solid var(--line);border-radius:4px}
+.lname{flex:1;min-width:0;text-align:left;background:none;border:none;padding:0;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.lname:hover{color:var(--accent)}
+.chip{font:500 10px/1 var(--font-mono);text-transform:uppercase;letter-spacing:.05em;padding:3px 5px;border-radius:4px;border:1px solid currentColor;opacity:.85}
+.count{font:12px var(--font-mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.x{border:none;background:none;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;padding:0 2px}
+.x:hover{color:var(--ink)}
+.layer-ctl{display:grid;grid-template-columns:1fr 1fr;gap:6px 8px;padding:0 8px 8px;font-size:12px;color:var(--muted)}
+.layer-ctl label{display:flex;flex-direction:column;gap:2px}
+.layer-ctl select,.layer-ctl input,.field input,.field select,textarea{background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:4px 6px;font-size:12px;width:100%}
+.layer-ctl .full{grid-column:1/-1}
+.lwarn{grid-column:1/-1;color:var(--warn);font-size:12px}
+.layer-ctl .lcheck{flex-direction:row;align-items:center;gap:6px;color:var(--ink);font-size:12.5px}
+.layer-ctl .lcheck input{width:auto;margin:0}
+.lsize{grid-column:1/-1;font:11.5px/1.4 var(--font-mono);color:var(--ink);font-variant-numeric:tabular-nums}
+.dsum{display:flex;flex-direction:column;gap:6px;font-size:13px}
+.dsum .path{font:12px var(--font-mono);word-break:break-all}
+.dsum .meta{font-size:12px;color:var(--muted)}
+.dtools{display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:8px}
+.dtools input,.dtools select{background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:5px 7px;font-size:12.5px;width:100%;min-width:0}
+.dlist{margin-top:8px;border:1px solid var(--line);border-radius:7px;max-height:300px;overflow:auto;background:var(--bg)}
+.drow{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;padding:5px 8px;border-bottom:1px solid var(--line);font-size:12.5px}
+.drow:last-child{border-bottom:none}
+.drow .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-size:12px}
+.drow .nm small{display:block;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis}
+.drow.dir .nm{font-family:var(--font-body);font-weight:500;cursor:pointer}
+.drow.dir .nm:hover{color:var(--accent)}
+.drow.opened .nm{color:var(--accent)}
+.dmore{padding:6px 8px;font-size:12px;color:var(--muted)}
+.limg{grid-column:1/-1;font-size:12px;color:var(--muted)}
+.limg.err{color:var(--warn)}
+.calpanel{position:absolute;top:48px;left:12px;width:330px;max-width:calc(100% - 24px);max-height:calc(100% - 100px);overflow:auto;background:var(--panel);border:1px solid var(--accent);border-radius:8px;padding:10px 12px;box-shadow:0 8px 30px rgba(0,0,0,.14);z-index:2;display:flex;flex-direction:column;gap:8px;font-size:12.5px}
+.calpanel[hidden]{display:none}
+.calpanel h3{margin:0;font:600 13.5px/1.3 var(--font-display)}
+.calpanel .step{color:var(--muted)}
+.calpanel .step b{color:var(--ink)}
+.calpanel table{width:100%;border-collapse:collapse;font:11.5px/1.35 var(--font-mono);font-variant-numeric:tabular-nums}
+.calpanel td,.calpanel th{padding:2px 4px;border-bottom:1px solid var(--line);text-align:right}
+.calpanel th{color:var(--muted);font-weight:500}
+.calpanel td:first-child,.calpanel th:first-child{text-align:left}
+.calpanel .row{display:flex;gap:6px;flex-wrap:wrap}
+.calpanel .res{font:12px var(--font-mono)}
+.focus-chip{display:inline-flex;align-items:center;gap:6px;background:var(--accent);color:var(--accent-ink);border-radius:6px;padding:3px 4px 3px 9px;font-size:12px;max-width:340px}
+.focus-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.focus-chip button{border:none;background:rgba(0,0,0,.18);color:inherit;border-radius:4px;cursor:pointer;padding:1px 7px;font-size:12px}
+.focus-chip[hidden]{display:none}
+
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.field{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+.field.full{grid-column:1/-1}
+.fields .full{grid-column:1/-1}
+.check{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink)}
+textarea{font-family:var(--font-mono);min-height:84px;resize:vertical}
+.hint{font-size:12px;color:var(--muted);margin:6px 0 0;max-width:62ch}
+.hint code{font-family:var(--font-mono);font-size:11.5px}
+
+main{position:relative;min-height:0;min-width:0;overflow:hidden;background:var(--canvas)}
+canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+canvas.dragging{cursor:grabbing}
+.drop{position:absolute;inset:12px;border:2px dashed var(--accent);border-radius:12px;display:none;place-items:center;font-weight:600;color:var(--accent);background:color-mix(in srgb,var(--canvas) 80%,transparent);pointer-events:none}
+main.over .drop{display:grid}
+.status{position:absolute;left:12px;right:12px;bottom:10px;display:flex;gap:16px;align-items:center;font:12px var(--font-mono);color:var(--muted);pointer-events:none;font-variant-numeric:tabular-nums}
+.status .r{margin-left:auto;min-width:0;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.toolbar{position:absolute;top:10px;left:12px;display:flex;gap:6px}
+.toolbar .btn{background:var(--panel)}
+.banner{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:5px 6px 5px 14px;font-size:12.5px;display:flex;gap:10px;align-items:center;max-width:calc(100% - 300px)}
+.banner[hidden]{display:none}
+.tip{position:absolute;pointer-events:none;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:12px/1.4 var(--font-mono);white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.12);display:none;z-index:3}
+.tip b{font-family:var(--font-body);font-weight:600}
+
+.inspector{position:absolute;top:10px;right:10px;bottom:36px;width:340px;max-width:calc(100% - 20px);background:var(--panel);border:1px solid var(--line);border-radius:8px;display:none;flex-direction:column;box-shadow:0 8px 30px rgba(0,0,0,.14);z-index:2}
+.inspector.open{display:flex}
+.insp-head{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.insp-head h3{margin:0;font:600 14px/1.3 var(--font-display);word-break:break-all;flex:1}
+.insp-head .sub{display:block;font:12px var(--font-mono);color:var(--muted);margin-top:2px}
+.insp-body{overflow:auto;padding:8px 12px 12px}
+.kv{width:100%;border-collapse:collapse;font:12px/1.35 var(--font-mono);font-variant-numeric:tabular-nums}
+.kv td{padding:3px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.kv td:first-child{color:var(--muted);padding-right:10px;white-space:nowrap;width:1%}
+.kv td:last-child{word-break:break-all}
+.kv tr.em td:last-child{color:var(--accent);font-weight:500}
+details{margin-top:10px}
+summary{cursor:pointer;color:var(--muted);font-size:12px}
+
+@media (max-width:760px){
+  .app{grid-template-columns:1fr;grid-template-rows:auto 62vh auto;height:auto;min-height:100%}
+  aside{border-right:none;border-top:1px solid var(--line);order:3}
+  main{order:2}
+  .banner{max-width:calc(100% - 24px);top:48px}
+  .inspector{width:auto;left:10px}
+}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>mdoc Stage Map <small>SerialEM · stage µm</small></h1>
+    <div class="opens" role="group" aria-label="Open mdoc files">
+      <button class="btn" data-open="atlas"><span class="sw" style="background:#8a96a0"></span>Open atlas</button>
+      <button class="btn" data-open="square"><span class="sw" style="background:#2f7fd8"></span>Open square maps</button>
+      <button class="btn" data-open="exposure"><span class="sw" style="background:#f2c200"></span>Open exposures</button>
+      <button class="btn" data-open="tilt"><span class="sw" style="background:#e0a100"></span>Open tilt series</button>
+      <button class="btn primary" id="openFolder">Choose data folder</button>
+    </div>
+    <input type="file" id="fileInput" accept=".mdoc,.mrc,.st,.map,.mrcs,.ali" multiple hidden>
+    <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
+  </header>
+
+  <aside>
+    <section class="sec" id="dataSec">
+      <h2>Data</h2>
+      <div id="dataSource"></div>
+      <div id="dataBrowse"></div>
+    </section>
+
+    <section class="sec">
+      <h2>Layers <span class="act"><button class="btn small" id="clearAll">Clear all</button></span></h2>
+      <div id="layers"></div>
+      <p class="hint">Select or drop the <code>.mdoc</code> and its <code>.mrc</code> together to see the images. Dropping a folder sets it as the data folder. Type, rotation and placement can be changed per layer.</p>
+    </section>
+
+    <section class="sec">
+      <h2>Atlas offset</h2>
+      <div class="fields">
+        <label class="field" for="offX">X (µm)<input id="offX" type="number" step="0.1" value="0"></label>
+        <label class="field" for="offY">Y (µm)<input id="offY" type="number" step="0.1" value="0"></label>
+        <label class="check full" for="offOn"><input id="offOn" type="checkbox" checked> Apply to square maps, exposures and tilt series</label>
+        <button class="btn small" id="offAlign">Align on this square</button>
+        <button class="btn small" id="offReset">Reset to 0</button>
+      </div>
+      <p class="hint" id="offStatus">Shifts everything taken after the atlas so it lines up with the atlas. Click into a square map, then press Align. Press again to refine. Saved in this browser.</p>
+    </section>
+
+    <section class="sec">
+      <h2>Image shift → stage</h2>
+      <div class="dsum" style="margin-bottom:8px">
+        <div><button class="btn small primary" id="calLoad">Load SerialEMcalibrations.txt</button> <button class="btn small" id="calClear" hidden>Forget</button></div>
+        <div class="meta" id="calStatus">With the calibration file, each image uses the matrix for its own MagIndex and CameraIndex. Without it, the values below apply to all images.</div>
+        <input type="file" id="calInput" accept=".txt,.bak,text/plain" hidden>
+      </div>
+      <div class="fields">
+        <label class="field" for="isScale">µm per IS unit<input id="isScale" type="number" step="0.01" value="1"></label>
+        <label class="field" for="isRot">IS rotation (°)<input id="isRot" type="number" step="0.5" value="0"></label>
+        <label class="check full" for="isMirror"><input id="isMirror" type="checkbox" checked> Invert IS Y (SerialEM default)</label>
+        <label class="check full" for="useRefined"><input id="useRefined" type="checkbox" checked> Use positions refined by correlation <span id="refCount"></span></label>
+        <button class="btn small" id="refClear">Clear refined positions</button>
+      </div>
+      <p class="hint">Fallback when no calibration matches: box center = <code>StagePosition</code> + scale · R(θ) · (IS<sub>x</sub>, −IS<sub>y</sub>). mdoc <code>ImageShift</code> is in SerialEM's basic units, close to µm on Thermo Fisher scopes.</p>
+    </section>
+
+    <section class="sec">
+      <h2>Display</h2>
+      <div class="fields">
+        <label class="field" for="viewRot">View rotation (° CCW)<input id="viewRot" type="number" step="90" value="180"></label>
+        <label class="field" for="gridDiam">Grid outline Ø (mm)<input id="gridDiam" type="number" step="0.05" min="0" value="2.44"></label>
+        <label class="check" for="showGrid"><input id="showGrid" type="checkbox" checked> Grid outline</label>
+        <label class="check" for="showLabels"><input id="showLabels" type="checkbox" checked> Labels</label>
+        <label class="check" for="showPieceNums"><input id="showPieceNums" type="checkbox"> Piece numbers</label>
+        <label class="check full" for="flipY"><input id="flipY" type="checkbox"> Mirror stage Y</label>
+      </div>
+      <p class="hint">180° matches the SerialEM Navigator. The axis marker at the bottom right shows where stage +X and +Y point.</p>
+    </section>
+
+  </aside>
+
+  <main id="main">
+    <canvas id="cv" aria-label="Stage map of loaded mdoc files"></canvas>
+    <div class="toolbar">
+      <button class="btn small" id="fitBtn" title="Full view (F or Esc)">Full view</button>
+      <button class="btn small" id="originBtn">Center on 0,0</button>
+      <div class="focus-chip" id="focusChip" hidden><span id="focusName"></span><button id="focusBack" title="Back to full view">Back</button></div>
+    </div>
+    <div class="banner" id="banner">Showing example data. Open your own mdoc files to replace it.<button class="btn small" id="bannerClear">Clear example</button></div>
+    <div class="drop">Drop .mdoc files or a folder</div>
+    <div class="tip" id="tip"></div>
+    <div class="calpanel" id="calPanel" hidden aria-live="polite"></div>
+    <div class="calpanel" id="refPanel" hidden aria-live="polite"></div>
+    <div class="inspector" id="inspector">
+      <div class="insp-head"><h3 id="inspTitle"></h3><button class="x" id="inspClose" aria-label="Close details">×</button></div>
+      <div class="insp-body" id="inspBody"></div>
+    </div>
+    <div class="status"><span id="cursor">X — Y —</span><span id="zoom"></span><span class="r" id="msg"></span></div>
+  </main>
+</div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const TYPES = {
+  atlas:    {label:"Atlas",       rank:0, color:"#8a96a0"},
+  square:   {label:"Square map",  rank:1, color:"#2f7fd8"},
+  exposure: {label:"Exposures",   rank:2, color:"#f2c200"},
+  tilt:     {label:"Tilt series", rank:3, color:"#e0a100"}
+};
+const state = {
+  layers: [], nextId: 1, demo: false,
+  view: {x:0, y:0, s:0.2},
+  settings: {viewRot:180, gridDiam:2.44, isScale:1, isRot:0, isMirror:true, flipY:false, showGrid:true, showLabels:true, showPieceNums:false, useRefined:true, offset:{x:0, y:0, on:true, note:""}},
+  selected: null, hover: null, focus: null
+};
+
+/* ---------- parsing ---------- */
+function nums(s){ if(s == null) return []; return String(s).trim().split(/[\s,]+/).filter(Boolean).map(Number).filter(v => !isNaN(v)); }
+function num(s){ const a = nums(s); return a.length ? a[0] : NaN; }
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function baseName(p){ const n = String(p).split(/[\\/]/).pop(); return n.replace(/\.mdoc$/i,"").replace(/\.(mrc|st|tif|tiff|eer|map|mrcs)$/i,""); }
+function median(a){ const b = a.filter(v => !isNaN(v)).sort((x,y)=>x-y); if(!b.length) return NaN; const m = b.length>>1; return b.length%2 ? b[m] : (b[m-1]+b[m])/2; }
+
+let docSeq = 0;
+function parseMdoc(text, name){
+  const header = {}, sections = [], titles = [];
+  let cur = null;
+  for(const raw of text.split(/\r?\n/)){
+    const line = raw.trim();
+    if(!line) continue;
+    let m = line.match(/^\[\s*([A-Za-z]+)\s*=\s*(.*?)\s*\]$/);
+    if(m){
+      if(m[1] === "T"){ titles.push(m[2]); continue; }
+      cur = {kind:m[1], index:m[2], kv:{}};
+      sections.push(cur);
+      continue;
+    }
+    m = line.match(/^([A-Za-z0-9_]+)\s*=\s*(.*)$/);
+    if(m) (cur ? cur.kv : header)[m[1]] = m[2];
+  }
+  return {id: ++docSeq, name, header, sections, titles, src: {kind:"file", path: name}};
+}
+const imageSections = doc => doc.sections.filter(s => s.kind === "ZValue" || s.kind === "FrameSet");
+const montSection = doc => doc.sections.find(s => s.kind === "MontSection");
+const get = (doc, sec, key) => (sec && sec.kv[key] != null) ? sec.kv[key] : doc.header[key];
+
+function pixelUm(doc, sec){
+  const ps = num(get(doc, sec, "PixelSpacing"));
+  return ps > 0 ? {um: ps/1e4, src: "PixelSpacing in mdoc"} : {um: NaN, src: "unknown"};
+}
+function imageSize(doc, sec){
+  let a = nums(doc.header.ImageSize);
+  if(a.length < 2 && sec) a = nums(sec.kv.ImageSize);
+  if(a.length < 2) a = nums(get(doc, sec, "UncroppedSize")).map(Math.abs);
+  return a.length >= 2 ? a.slice(0,2) : null;
+}
+function stagePos(doc, sec){ const a = nums(get(doc, sec, "StagePosition")); return a.length >= 2 ? a.slice(0,2) : null; }
+function isUm(sec, doc, keepUser){
+  let a = nums(sec && sec.kv.ImageShift);
+  const U = doc && keepUser !== false ? userCalFor(doc, sec) : null;
+  if(U){ if(a.length < 2) a = [0, 0]; return [U.m[0]*a[0] + U.m[1]*a[1] + U.c[0], U.m[2]*a[0] + U.m[3]*a[1] + U.c[1]]; }
+  if(a.length < 2) return [0,0];
+  const T = doc ? calMatrixFor(doc, sec) : null;
+  if(T) return [T.m[0]*a[0] + T.m[1]*a[1], T.m[2]*a[0] + T.m[3]*a[1]];
+  const {isScale, isRot, isMirror} = state.settings;
+  const t = isRot*Math.PI/180, x = a[0], y = isMirror ? -a[1] : a[1];
+  return [isScale*(Math.cos(t)*x - Math.sin(t)*y), isScale*(Math.sin(t)*x + Math.cos(t)*y)];
+}
+
+/* ---------- classification ---------- */
+function montageExtentUm(doc){
+  const secs = imageSections(doc); if(!secs.length) return 0;
+  const sz = imageSize(doc, secs[0]) || [4096,4096];
+  const px = pixelUm(doc, secs[0]).um;
+  const pcs = secs.map(s => nums(s.kv.PieceCoordinates)).filter(a => a.length >= 2);
+  if(pcs.length && px > 0){
+    const xs = pcs.map(p=>p[0]), ys = pcs.map(p=>p[1]);
+    return Math.max(Math.max(...xs)-Math.min(...xs)+sz[0], Math.max(...ys)-Math.min(...ys)+sz[1]) * px;
+  }
+  const st = secs.map(s => stagePos(doc, s)).filter(Boolean);
+  if(st.length > 1){ const xs = st.map(p=>p[0]), ys = st.map(p=>p[1]); return Math.max(Math.max(...xs)-Math.min(...xs), Math.max(...ys)-Math.min(...ys)); }
+  return 0;
+}
+function classify(doc){
+  const secs = imageSections(doc);
+  const pieceSet = new Set(secs.map(s => s.kv.PieceCoordinates).filter(Boolean));
+  const isMont = num(doc.header.Montage) === 1 || !!montSection(doc) || pieceSet.size > 1;
+  if(isMont){
+    const mag = median(secs.map(s => num(get(doc, s, "Magnification"))));
+    const ext = montageExtentUm(doc);
+    if(ext > 500) return "atlas";
+    if(ext === 0 && mag > 0 && mag < 300) return "atlas";
+    return "square";
+  }
+  const tilts = secs.map(s => num(s.kv.TiltAngle)).filter(v => !isNaN(v));
+  if(secs.length >= 2 && tilts.length >= 2 && Math.max(...tilts) - Math.min(...tilts) > 2) return "tilt";
+  return "exposure";
+}
+
+/* ---------- geometry ---------- */
+function fitMontage(pieces){
+  if(pieces.length < 2) return null;
+  const n = pieces.length;
+  let mpx=0, mpy=0, msx=0, msy=0;
+  for(const p of pieces){ mpx+=p.pc[0]; mpy+=p.pc[1]; msx+=p.st[0]; msy+=p.st[1]; }
+  mpx/=n; mpy/=n; msx/=n; msy/=n;
+  let spread = 0;
+  for(const p of pieces) spread = Math.max(spread, Math.hypot(p.st[0]-msx, p.st[1]-msy));
+  if(spread < 0.5) return null;
+  const fit = m => {
+    let a=0, b=0, pp=0;
+    for(const p of pieces){
+      const px = p.pc[0]-mpx, py = m*(p.pc[1]-mpy), sx = p.st[0]-msx, sy = p.st[1]-msy;
+      a += px*sx + py*sy; b += px*sy - py*sx; pp += px*px + py*py;
+    }
+    const th = Math.atan2(b, a), sc = Math.hypot(a, b)/pp;
+    let r = 0;
+    for(const p of pieces){
+      const px = p.pc[0]-mpx, py = m*(p.pc[1]-mpy);
+      const ex = sc*(Math.cos(th)*px - Math.sin(th)*py) - (p.st[0]-msx);
+      const ey = sc*(Math.sin(th)*px + Math.cos(th)*py) - (p.st[1]-msy);
+      r += ex*ex + ey*ey;
+    }
+    return {th, sc, m, r};
+  };
+  const f1 = fit(1), f2 = fit(-1);
+  return f1.r <= f2.r ? f1 : f2;
+}
+
+function makeItem(L, doc, sec, cx, cy, w, h, rot, label, short, extra){
+  return {L, doc, sec, cx, cy, w, h, rot, label, short, extra: extra || {}};
+}
+
+function boxSize(L, doc, sec, fitScale){
+  const sz = imageSize(doc, sec);
+  let px = pixelUm(doc, sec);
+  if(!(px.um > 0) && fitScale > 0) px = {um: fitScale, src:"fitted from stage positions"};
+  if(!sz){ L.warn.add("No ImageSize in mdoc; boxes drawn as 1 µm squares."); return {w:1, h:1, src:"unknown"}; }
+  if(!(px.um > 0)){ L.warn.add("No PixelSpacing in the mdoc; boxes drawn as 1 µm squares."); return {w:1, h:1, src:"unknown"}; }
+  return {w: sz[0]*px.um, h: sz[1]*px.um, src: px.src, px: px.um, sz, mag: num(get(doc, sec, "Magnification"))};
+}
+
+function buildMontage(L, doc){
+  const secs = imageSections(doc);
+  const groups = new Map();
+  for(const s of secs){
+    const pc = nums(s.kv.PieceCoordinates);
+    const g = pc.length >= 3 ? pc[2] : 0;
+    if(!groups.has(g)) groups.set(g, []);
+    groups.get(g).push({sec:s, pc: pc.length >= 2 ? pc : null, st: stagePos(doc, s)});
+  }
+  const multi = groups.size > 1;
+  for(const [g, list] of groups){
+    const mont = {name: baseName(doc.name) + (multi ? ` · section ${g}` : ""), items: [], key: `${doc.id}|${g}`, doc, L, g, pieceSecs: list.map(p => p.sec), tiles: []};
+    L.montages.push(mont);
+    const fit = fitMontage(list.filter(p => p.pc && p.st));
+    const autoRot = fit ? fit.th*180/Math.PI : 0;
+    L.autoRot = autoRot;
+    const rot = L.rot == null ? autoRot : L.rot;
+    const hasPieces = list.some(p => p.pc);
+    // montage pieces sit at their stage positions; piece coordinates only if no stage positions were recorded
+    const place = list.some(p => p.st) || !hasPieces ? "stage" : "piece";
+    const sizeInfo = boxSize(L, doc, list[0].sec, fit && fit.sc);
+    if(fit && sizeInfo.px > 0){
+      const dev = Math.abs(fit.sc/sizeInfo.px - 1);
+      if(dev > 0.15) L.warn.add(`Stage spacing of pieces differs from PixelSpacing by ${(dev*100).toFixed(0)}%.`);
+    }
+    let center = null, pcMean = null;
+    if(place === "piece"){
+      const ms = montSection(doc);
+      center = (ms && stagePos(doc, ms));
+      if(!center){
+        const st = list.map(p => p.st).filter(Boolean);
+        center = st.length ? [st.reduce((a,p)=>a+p[0],0)/st.length, st.reduce((a,p)=>a+p[1],0)/st.length] : [0,0];
+      }
+      const pcs = list.filter(p => p.pc);
+      const sz = sizeInfo.sz || [0,0];
+      pcMean = [pcs.reduce((a,p)=>a+p.pc[0]+sz[0]/2,0)/pcs.length, pcs.reduce((a,p)=>a+p.pc[1]+sz[1]/2,0)/pcs.length];
+    }
+    const t = rot*Math.PI/180, m = fit ? fit.m : 1;
+    const scale = sizeInfo.px > 0 ? sizeInfo.px : (fit ? fit.sc : 0);
+    const pieceItems = [];
+    for(const p of list){
+      let cx, cy;
+      if(place === "piece" && p.pc){
+        const sz = sizeInfo.sz || [0,0];
+        const ox = (p.pc[0] + sz[0]/2 - pcMean[0])*scale, oy = m*(p.pc[1] + sz[1]/2 - pcMean[1])*scale;
+        cx = center[0] + Math.cos(t)*ox - Math.sin(t)*oy;
+        cy = center[1] + Math.sin(t)*ox + Math.cos(t)*oy;
+      } else {
+        if(!p.st){ L.warn.add("Some pieces have no StagePosition and were skipped."); continue; }
+        cx = p.st[0]; cy = p.st[1];
+      }
+      const short = multi ? `${g}:${p.sec.index}` : String(p.sec.index);
+      pieceItems.push(makeItem(L, doc, p.sec, cx, cy, sizeInfo.w, sizeInfo.h, rot,
+        `${baseName(doc.name)} · piece ${p.sec.index}`, short,
+        {sizeSrc:sizeInfo.src, pxA:sizeInfo.px*1e4, mag:sizeInfo.mag, sz:sizeInfo.sz, placement:place, fit}));
+    }
+    if(!pieceItems.length) continue;
+    let out = pieceItems;
+    if(L.type === "square" && !L.showPieces){
+      // one box per montage section, covering all its pieces in the camera frame
+      const c0x = pieceItems.reduce((a,it)=>a+it.cx,0)/pieceItems.length, c0y = pieceItems.reduce((a,it)=>a+it.cy,0)/pieceItems.length;
+      let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+      for(const it of pieceItems){
+        const dx = it.cx-c0x, dy = it.cy-c0y;
+        const u = dx*Math.cos(t) + dy*Math.sin(t), v = -dx*Math.sin(t) + dy*Math.cos(t);
+        u0 = Math.min(u0, u-it.w/2); u1 = Math.max(u1, u+it.w/2); v0 = Math.min(v0, v-it.h/2); v1 = Math.max(v1, v+it.h/2);
+      }
+      const um = (u0+u1)/2, vm = (v0+v1)/2;
+      const cx = c0x + Math.cos(t)*um - Math.sin(t)*vm, cy = c0y + Math.sin(t)*um + Math.cos(t)*vm;
+      const ms = doc.sections.find(x => x.kind === "MontSection" && Number(x.index) === g);
+      const pxA = sizeInfo.px*1e4;
+      const extPx = sizeInfo.px > 0 ? [Math.round((u1-u0)/sizeInfo.px), Math.round((v1-v0)/sizeInfo.px)] : null;
+      out = [makeItem(L, doc, ms || list[0].sec, cx, cy, u1-u0, v1-v0, rot, mont.name, String(g),
+        {sizeSrc:sizeInfo.src, pxA, mag:sizeInfo.mag, sz:extPx, placement:place, fit, pieces:pieceItems.length, section:g, pieceSize:sizeInfo.sz})];
+    }
+    for(const it of out){ it.montage = mont; mont.items.push(it); L.items.push(it); }
+    mont.tiles = placeTiles(L, mont, list, pieceItems, sizeInfo, rot, fit ? fit.m : 1, scale);
+  }
+}
+
+function placeTiles(L, mont, list, pieceItems, sizeInfo, rot, m, scale){
+  const doc = mont.doc;
+  const ax = pieceItems.reduce((a,it)=>a+it.cx,0)/pieceItems.length, ay = pieceItems.reduce((a,it)=>a+it.cy,0)/pieceItems.length;
+  const al = alignCache.get(mont.key);
+  const mdocCoord = sec => { const a = nums(sec.kv.AlignedPieceCoords); if(a.length >= 2) return a; const b = nums(sec.kv.AlignedPieceCoordsVS); return b.length >= 2 ? b : null; };
+  const hasMdoc = list.length > 0 && list.every(p => mdocCoord(p.sec));
+  const mode = L.alignMode || "auto";
+  let use = mode === "auto" ? (hasMdoc ? "mdoc" : al ? "xcorr" : "nominal") : mode;
+  if(use === "mdoc" && !hasMdoc) use = "nominal";
+  if(use === "xcorr" && !al) use = "nominal";
+  const sz = sizeInfo.sz;
+  if(use !== "stage" && (!list.every(p => p.pc) || !sz || !(scale > 0))) use = "stage";
+  mont.alignUsed = use;
+  const tiles = [];
+  if(use === "stage"){
+    for(const it of pieceItems) tiles.push({key: `${doc.id}|${it.sec.index}`, cx: it.cx, cy: it.cy, w: it.w, h: it.h, rot, flip: m});
+    return tiles;
+  }
+  const coords = list.map(p => use === "mdoc" ? mdocCoord(p.sec) : use === "xcorr" ? (al.pos.get(Number(p.sec.index)) || p.pc) : p.pc);
+  const cs = coords.map(c => [c[0] + sz[0]/2, c[1] + sz[1]/2]);
+  const mx = cs.reduce((a,c)=>a+c[0],0)/cs.length, my = cs.reduce((a,c)=>a+c[1],0)/cs.length;
+  const t = rot*Math.PI/180;
+  list.forEach((p, i) => {
+    const ox = (cs[i][0]-mx)*scale, oy = m*(cs[i][1]-my)*scale;
+    tiles.push({key: `${doc.id}|${p.sec.index}`, cx: ax + Math.cos(t)*ox - Math.sin(t)*oy, cy: ay + Math.sin(t)*ox + Math.cos(t)*oy, w: sizeInfo.w, h: sizeInfo.h, rot, flip: m});
+  });
+  return tiles;
+}
+
+function zeroTiltOnly(doc, secs){
+  const t = secs.map(s => num(s.kv.TiltAngle));
+  const ok = t.filter(v => !isNaN(v));
+  if(secs.length < 2 || ok.length < 2 || Math.max(...ok) - Math.min(...ok) <= 2) return secs;
+  let best = null, ba = Infinity;
+  secs.forEach((s, i) => { if(!isNaN(t[i]) && Math.abs(t[i]) < ba && stagePos(doc, s)){ ba = Math.abs(t[i]); best = s; } });
+  return best ? [best] : secs;
+}
+function buildExposures(L, doc){
+  const secs = zeroTiltOnly(doc, imageSections(doc));
+  L.autoRot = 0;
+  const rot = L.rot == null ? 0 : L.rot;
+  for(const s of secs){
+    const st = stagePos(doc, s);
+    if(!st){ L.warn.add("Some sections have no StagePosition and were skipped."); continue; }
+    const is = isUm(s, doc), b = boxSize(L, doc, s);
+    const name = baseName(doc.name);
+    const label = secs.length > 1 ? `${name} · ${s.kind} ${s.index}` : name;
+    const uc = userCalFor(doc, s), cm = uc ? null : calMatrixFor(doc, s);
+    if(uc) L.userCalUsed = uc; else if(cm) L.calUsed = cm; else if(nums(s.kv.ImageShift).some(v => v)) L.calMissing = true;
+    pushImgItem(L, makeItem(L, doc, s, st[0]+is[0], st[1]+is[1], b.w, b.h, rot, label,
+      secs.length > 1 ? String(s.index) : name, {sizeSrc:b.src, pxA:b.px*1e4, mag:b.mag, sz:b.sz}));
+  }
+}
+
+function pushImgItem(L, it){ it.imgKey = `${it.doc.id}|${it.sec.index}`; L.items.push(it); }
+function buildTilt(L, doc){
+  const secs = imageSections(doc);
+  L.autoRot = 0;
+  const rot = L.rot == null ? 0 : L.rot;
+  let best = null, bestA = Infinity;
+  const tilts = [];
+  for(const s of secs){
+    const a = num(s.kv.TiltAngle);
+    if(isNaN(a)) continue;
+    tilts.push(a);
+    if(Math.abs(a) < bestA && stagePos(doc, s)){ bestA = Math.abs(a); best = s; }
+  }
+  if(!best){ best = secs.find(s => stagePos(doc, s)); }
+  if(!best){ L.warn.add(`${baseName(doc.name)}: no section with StagePosition.`); return; }
+  const st = stagePos(doc, best), is = isUm(best, doc), b = boxSize(L, doc, best);
+  const range = tilts.length ? `${Math.min(...tilts).toFixed(1)}° to ${Math.max(...tilts).toFixed(1)}°` : "n/a";
+  const uc = userCalFor(doc, best), cm = uc ? null : calMatrixFor(doc, best);
+  if(uc) L.userCalUsed = uc; else if(cm) L.calUsed = cm; else if(nums(best.kv.ImageShift).some(v => v)) L.calMissing = true;
+  pushImgItem(L, makeItem(L, doc, best, st[0]+is[0], st[1]+is[1], b.w, b.h, rot, baseName(doc.name), baseName(doc.name),
+    {sizeSrc:b.src, pxA:b.px*1e4, mag:b.mag, sz:b.sz, tiltCount:tilts.length, tiltRange:range, shownTilt:num(best.kv.TiltAngle)}));
+}
+
+function buildLayer(L){
+  L.items = []; L.warn = new Set(); L.montages = []; L.calUsed = null; L.calMissing = false; L.userCalUsed = null;
+  for(const doc of L.docs){
+    if(L.type === "atlas" || L.type === "square") buildMontage(L, doc);
+    else if(L.type === "tilt") buildTilt(L, doc);
+    else buildExposures(L, doc);
+  }
+  const ra = [];
+  for(const d of L.docs) for(const s of imageSections(d)){ const v = num(s.kv.RotationAngle); if(!isNaN(v)) ra.push(v); }
+  L.mdocRot = median(ra);
+  const off = state.settings.offset;
+  L.offsetApplied = L.type !== "atlas" && off.on && (off.x || off.y);
+  if(L.offsetApplied){
+    for(const it of L.items){ it.cx += off.x; it.cy += off.y; }
+    for(const m of L.montages) for(const t of m.tiles){ t.cx += off.x; t.cy += off.y; }
+  }
+  // positions found by correlation refinement override the computed ones
+  if((L.type === "exposure" || L.type === "tilt") && state.settings.useRefined){
+    const ox = L.offsetApplied ? off.x : 0, oy = L.offsetApplied ? off.y : 0;
+    for(const it of L.items){ const r = REFINED[refKey(it)]; if(!r) continue; it.cx = r.x + ox; it.cy = r.y + oy; if(r.rot != null) it.rot = r.rot; it.flip = r.flip || 1; it.refined = r; }
+  }
+}
+// rebuild every layer but keep the current focus and selection
+function rebuildKeepFocus(){
+  const fk = state.focus && state.focus.key;
+  state.layers.forEach(buildLayer);
+  if(fk){ const m = state.layers.flatMap(L => L.montages || []).find(x => x.key === fk); if(m) state.focus = m; else setFocus(null); }
+  reselect(); renderLayers(); render();
+}
+function rebuildAll(){ state.layers.forEach(buildLayer); setFocus(null); if(state.selected && !state.layers.includes(state.selected.L)) state.selected = null; reselect(); renderLayers(); render(); }
+function reselect(){
+  if(!state.selected) return;
+  const {L, doc, sec} = state.selected;
+  state.selected = L.items.find(it => it.doc === doc && it.sec === sec) || null;
+  showInspector();
+}
+
+/* ---------- loading ---------- */
+function addLayer(type, docs, name){
+  const L = {id: state.nextId++, type, docs, name, color: TYPES[type].color, visible: true, rot: null, placement: "auto", showPieces: false, loadImages: false, alignMode: "auto", imgErr: new Set(), items: [], warn: new Set()};
+  buildLayer(L);
+  state.layers.push(L);
+  return L;
+}
+const PLURAL = {square:"Square maps", exposure:"Exposures", tilt:"Tilt series"};
+function loadDocs(docs, forced, merge){
+  const groups = {square: [], exposure: [], tilt: []};
+  let added = 0;
+  for(const doc of docs){
+    const type = forced || classify(doc);
+    if(type === "atlas"){ addLayer(type, [doc], baseName(doc.name)); added++; }
+    else groups[type].push(doc);
+  }
+  for(const type of ["square", "exposure", "tilt"]){
+    const g = groups[type];
+    if(!g.length) continue;
+    const target = merge ? [...state.layers].reverse().find(L => L.type === type && L.mergeable) : null;
+    if(target){
+      target.docs.push(...g);
+      target.name = target.docs.length === 1 ? baseName(target.docs[0].name) : `${PLURAL[type]} · ${target.docs.length} files`;
+      buildLayer(target);
+      if(target.loadImages) startImages(target);
+      continue;
+    }
+    const name = g.length === 1 ? baseName(g[0].name) : `${PLURAL[type]} · ${g.length} files`;
+    const L = addLayer(type, g, name); added++;
+    if(merge) L.mergeable = true;
+  }
+  return added;
+}
+const MRC_RE = /\.(mrc|st|map|mrcs|ali|preali)$/i;
+async function openFiles(fileList, forced){
+  const all = [...fileList];
+  const files = all.filter(f => /\.mdoc$/i.test(f.name));
+  const mrcs = all.filter(f => MRC_RE.test(f.name));
+  for(const f of mrcs) data.extra.set(f.name.toLowerCase(), f);
+  if(!files.length){
+    if(mrcs.length){ const n = attachImages(); setMsg(n ? `Added ${mrcs.length} MRC file${mrcs.length===1?"":"s"}; images on for ${n} layer${n===1?"":"s"}.` : `Added ${mrcs.length} MRC file${mrcs.length===1?"":"s"}, but no open mdoc matches ${mrcs.length===1?"it":"them"}.`); renderLayers(); render(); }
+    else setMsg("No .mdoc or .mrc files in that selection.");
+    return;
+  }
+  if(state.demo) clearAll();
+  const docs = [];
+  for(const f of files){
+    try { const d = parseMdoc(await f.text(), f.webkitRelativePath || f.name); d.src = {kind:"file", path: f.webkitRelativePath || f.name}; docs.push(d); }
+    catch(e){ setMsg(`Could not read ${f.name}.`); }
+  }
+  const n = loadDocs(docs, forced);
+  const withImg = attachImages(docs);
+  const missing = docs.filter(d => mrcCandidates(d).length && !pairedLocally(d)).length;
+  setMsg(`Loaded ${docs.length} mdoc file${docs.length===1?"":"s"} into ${n} layer${n===1?"":"s"}` + (withImg ? `; images on for ${withImg}.` : ".") + (missing && !data.folder && !data.server ? ` ${missing} without its .mrc.` : ""));
+  renderLayers(); fitView(); render();
+}
+// true when the .mrc for this mdoc was selected or dropped alongside it
+function pairedLocally(doc){ return mrcCandidates(doc).some(c => data.extra.has(c.name.toLowerCase())); }
+const canLoad = L => !!(data.folder || data.server) || L.docs.some(pairedLocally);
+// switch images on for layers whose mdoc now has its .mrc; retry earlier failures
+function attachImages(onlyDocs){
+  let n = 0;
+  for(const L of state.layers){
+    const docs = L.docs.filter(d => pairedLocally(d) && (!onlyDocs || onlyDocs.includes(d)));
+    if(!docs.length) continue;
+    for(const d of docs){
+      hdrCache.delete(d.id); imgFailures.delete(d.id);
+      for(const m of L.montages) if(m.doc === d && montState.get(m.key)?.state === "error") montState.delete(m.key);
+    }
+    L.imgErr.clear();
+    if(!L.loadImages){ L.loadImages = true; n++; }
+    startImages(L);
+  }
+  return n;
+}
+async function filesFromDrop(dt){
+  const out = [];
+  const walk = async entry => {
+    if(entry.isFile){ await new Promise(r => entry.file(f => { out.push({file: f, path: entry.fullPath.replace(/^\/+/, "")}); r(); }, r)); }
+    else if(entry.isDirectory){
+      const reader = entry.createReader();
+      let batch;
+      do { batch = await new Promise(r => reader.readEntries(r, () => r([]))); for(const e of batch) await walk(e); } while(batch.length);
+    }
+  };
+  const entries = [...dt.items].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+  const hasDir = entries.some(e => e.isDirectory);
+  if(entries.length){ for(const e of entries) await walk(e); return {list: out, hasDir}; }
+  return {list: [...dt.files].map(f => ({file: f, path: f.name})), hasDir: false};
+}
+function clearAll(){
+  state.layers = []; state.selected = null; state.demo = false; setFocus(null);
+  $("#banner").hidden = true; showInspector(); renderLayers(); renderDataList(); render();
+}
+
+/* ---------- data source: picked folder or local server ---------- */
+const data = {folder: null, server: null, srvPath: "", srvRecursive: false, srvEntries: null, filter: "", openType: "auto", extra: new Map()};
+function chooseFolder(){ $("#folderInput").value = ""; $("#folderInput").click(); }
+function setDataFolder(list){
+  const files = new Map(), byName = new Map(), mdocs = [];
+  let mrc = 0;
+  for(const {file, path} of list){
+    files.set(path, file);
+    const n = path.split("/").pop().toLowerCase();
+    if(!byName.has(n)) byName.set(n, []);
+    byName.get(n).push(path);
+    if(/\.mdoc$/i.test(path)) mdocs.push(path);
+    else if(/\.(mrc|st|map|mrcs)$/i.test(path)) mrc++;
+  }
+  mdocs.sort((a, b) => a.localeCompare(b, undefined, {numeric: true}));
+  const top = list.length ? list[0].path.split("/")[0] : "folder";
+  data.folder = {name: top, files, byName, mdocs, mrc, count: list.length};
+  if(state.demo) clearAll();
+  imgFailures.clear(); hdrCache.clear();
+  setMsg(`Data folder: ${mdocs.length} mdoc and ${mrc} MRC files.`);
+  renderData(); renderLayers();
+}
+const hasData = () => !!(data.folder || data.server || data.extra.size);
+function openedPaths(){ const set = new Set(); for(const L of state.layers) for(const d of L.docs) set.add(`${d.src.kind}:${d.src.path}`); return set; }
+
+function renderData(){
+  const src = $("#dataSource"), br = $("#dataBrowse");
+  if(data.server){
+    src.innerHTML = `<div class="dsum"><div>Connected to the local server</div><div class="meta">Roots: ${data.server.roots.map(r => `<code>${esc(r.name)}</code> = ${esc(r.path)}`).join(", ")}</div></div>
+      <div class="dtools"><input id="srvPath" type="text" spellcheck="false" placeholder="Folder or .mdoc path (absolute or root/…)" value="${esc(data.srvPath)}" aria-label="Server path"><button class="btn small" id="srvGo">Go</button></div>
+      <div class="dtools"><label class="check" for="srvRec"><input type="checkbox" id="srvRec" ${data.srvRecursive?"checked":""}> Include subfolders</label><button class="btn small" id="srvUp">Up</button></div>`;
+  } else if(data.folder){
+    src.innerHTML = `<div class="dsum"><div class="path">${esc(data.folder.name)}/</div><div class="meta">${data.folder.mdocs.length} mdoc · ${data.folder.mrc} MRC · ${data.folder.count} files</div><div><button class="btn small" id="dfChange">Choose another folder</button></div></div>`;
+  } else {
+    src.innerHTML = `<div class="dsum"><div class="meta">Use the Open buttons above and select each .mdoc together with its .mrc (Ctrl- or Cmd-click both). Or choose the session folder once to list all its mdoc files here.</div><div><button class="btn small primary" id="dfChoose">Choose data folder</button></div></div>`;
+  }
+  const b = $("#dfChange") || $("#dfChoose"); if(b) b.addEventListener("click", chooseFolder);
+  if(data.server){
+    $("#srvGo").addEventListener("click", () => srvGo($("#srvPath").value.trim()));
+    $("#srvPath").addEventListener("keydown", e => { if(e.key === "Enter") srvGo(e.target.value.trim()); });
+    $("#srvUp").addEventListener("click", () => srvBrowse(data.srvParent ?? ""));
+    $("#srvRec").addEventListener("change", e => { data.srvRecursive = e.target.checked; srvBrowse(data.srvPath); });
+  }
+  if(!(data.folder || data.server)){ br.innerHTML = ""; return; }
+  br.innerHTML = `<div class="dtools"><input id="dlFilter" type="search" placeholder="Filter mdoc files" value="${esc(data.filter)}" aria-label="Filter mdoc files">
+    <select id="dlType" aria-label="Open as">${[["auto","Auto-detect"],["atlas","Atlas"],["square","Square map"],["exposure","Exposures"],["tilt","Tilt series"]].map(([v,l]) => `<option value="${v}" ${data.openType===v?"selected":""}>${l}</option>`).join("")}</select></div>
+    <div class="lwarn" id="dlErr" role="status">${esc(data.err || "")}</div>
+    <div class="dlist" id="dlList"></div>`;
+  $("#dlFilter").addEventListener("input", e => { data.filter = e.target.value; renderDataList(); });
+  $("#dlType").addEventListener("change", e => { data.openType = e.target.value; });
+  renderDataList();
+}
+function dataEntries(){
+  if(data.server){
+    const e = data.srvEntries || {dirs: [], files: []};
+    return {dirs: e.dirs, files: e.files.map(f => ({path: f.path, name: f.name, sub: f.rel || "", mrc: f.mrc, kind: "server"}))};
+  }
+  return {dirs: [], files: data.folder.mdocs.map(p => { const parts = p.split("/"); return {path: p, name: parts.pop(), sub: parts.slice(1).join("/"), kind: "folder"}; })};
+}
+function dataError(t){ data.err = t || ""; const el = $("#dlErr"); if(el) el.textContent = data.err; if(t) setMsg(t); }
+function renderDataList(){
+  const box = $("#dlList"); if(!box) return;
+  const f = data.filter.toLowerCase();
+  const {dirs, files} = dataEntries();
+  const shown = files.filter(x => !f || x.path.toLowerCase().includes(f));
+  const opened = openedPaths();
+  const CAP = 300;
+  let html = dirs.filter(d => !f || d.name.toLowerCase().includes(f)).map(d => `<div class="drow dir"><span class="nm" data-dir="${esc(d.path)}" title="${esc(d.path)}">${esc(d.name)}/</span><span></span></div>`).join("");
+  html += shown.slice(0, CAP).map(x => {
+    const isOpen = opened.has(`${x.kind}:${x.path}`);
+    return `<div class="drow ${isOpen?"opened":""}"><span class="nm" title="${esc(x.path)}">${esc(x.name)}${x.sub ? `<small>${esc(x.sub)}</small>` : ""}</span><button class="btn small" data-path="${esc(x.path)}" data-kind="${x.kind}" data-open-state="${isOpen?1:0}">${isOpen ? "Zoom to" : "Open"}</button></div>`;
+  }).join("");
+  if(shown.length > CAP) html += `<div class="dmore">${shown.length - CAP} more. Type in the filter to narrow the list.</div>`;
+  if(!dirs.length && !shown.length) html = `<div class="dmore">${files.length ? "No mdoc files match the filter." : "No mdoc files here."}</div>`;
+  if(shown.length > 1) html += `<div class="dmore"><button class="btn small" id="dlOpenAll">Open all ${shown.length} listed</button></div>`;
+  box.innerHTML = html;
+  box.querySelectorAll("[data-dir]").forEach(el => el.addEventListener("click", () => srvBrowse(el.dataset.dir)));
+  box.querySelectorAll("[data-path]").forEach(el => el.addEventListener("click", () => {
+    if(el.dataset.openState === "1") zoomToDoc(el.dataset.kind, el.dataset.path);
+    else openPaths([{kind: el.dataset.kind, path: el.dataset.path}]);
+  }));
+  const all = $("#dlOpenAll"); if(all) all.addEventListener("click", () => openPaths(shown.filter(x => !opened.has(`${x.kind}:${x.path}`)).map(x => ({kind: x.kind, path: x.path}))));
+}
+async function readText(kind, path){
+  if(kind === "folder") return data.folder.files.get(path).text();
+  const r = await fetch(`api/file?path=${encodeURIComponent(path)}`, {cache: "no-store"});
+  if(!r.ok){ let m = await r.text(); try { m = JSON.parse(m).error || m; } catch(e){} throw new Error(`${m} (HTTP ${r.status})`); }
+  return r.text();
+}
+async function openPaths(list){
+  if(!list.length) return;
+  if(state.demo) clearAll();
+  const docs = [];
+  for(const {kind, path} of list){
+    try { const d = parseMdoc(await readText(kind, path), path); d.src = {kind, path}; docs.push(d); }
+    catch(e){ dataError(`Could not read ${path.split("/").pop()}: ${e.message}`); }
+  }
+  if(!docs.length) return;
+  dataError("");
+  const forced = data.openType === "auto" ? null : data.openType;
+  const hadItems = state.layers.some(L => L.items.length);
+  loadDocs(docs, forced, true);
+  setMsg(docs.length === 1 ? `Opened ${baseName(docs[0].name)}.` : `Opened ${docs.length} mdoc files.`);
+  renderLayers(); renderDataList();
+  if(!hadItems) fitView(); 
+  else if(docs.length === 1) { const its = state.layers.flatMap(L => L.items.filter(it => it.doc === docs[0])); if(its.length) animateTo(viewFor(its)); }
+  render();
+}
+function zoomToDoc(kind, path){
+  const its = state.layers.flatMap(L => L.items.filter(it => it.doc.src.kind === kind && it.doc.src.path === path));
+  if(its.length){ setFocus(null); animateTo(viewFor(its, 0.6)); }
+  else if(!state.layers.some(L => L.docs.some(d => d.src.kind === kind && d.src.path === path))) openPaths([{kind, path}]);
+}
+
+/* local server */
+async function detectServer(){
+  if(location.protocol !== "http:" && location.protocol !== "https:") return;
+  try {
+    const r = await fetch("api/info", {cache: "no-store"});
+    if(!r.ok) return;
+    const j = await r.json();
+    if(j.app !== "mdoc-stage-map") return;
+    data.server = j;
+    if(state.demo) clearAll();
+    renderData();
+    srvBrowse(j.start || "");
+  } catch(e){}
+}
+async function srvBrowse(path){
+  try {
+    const r = await fetch(`api/list?path=${encodeURIComponent(path)}&recursive=${data.srvRecursive?1:0}`, {cache: "no-store"});
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error || r.status);
+    data.srvPath = j.path; data.srvParent = j.parent; data.srvEntries = j;
+    if(j.truncated) setMsg(`Listing stopped at ${j.files.length} mdoc files. Narrow the folder.`);
+    renderData();
+  } catch(e){ dataError(`Server: ${e.message}`); }
+}
+function srvGo(path){
+  if(/\.mdoc$/i.test(path)) openPaths([{kind: "server", path}]);
+  else srvBrowse(path);
+}
+
+/* ---------- MRC images ---------- */
+const TILE = 640;                 // longest side of a displayed piece, in pixels
+const imgCache = new Map();       // "docId|z" -> {tile, lo, hi, raw?, bw, bh, bin}
+const alignCache = new Map();     // montage key -> {pos: Map(z -> [x, y]), good, total, maxShift}
+const hdrCache = new Map();       // doc.id -> Promise<header>
+const montState = new Map();      // montage key -> {state, done, total, note}
+const imgFailures = new Map();    // docId -> message
+let renderQueued = false;
+function scheduleRender(){ if(renderQueued) return; renderQueued = true; requestAnimationFrame(() => { renderQueued = false; render(); }); }
+
+function mrcCandidates(doc){
+  const p = doc.src.path || doc.name;
+  const dir = p.includes("/") ? p.slice(0, p.lastIndexOf("/") + 1) : "";
+  const base = p.split("/").pop();
+  const out = [];
+  if(/\.mdoc$/i.test(base)) out.push(base.replace(/\.mdoc$/i, ""));
+  if(doc.header.ImageFile) out.push(String(doc.header.ImageFile).split(/[\\/]/).pop());
+  return [...new Set(out)].filter(n => /\.(mrc|st|map|mrcs|ali|preali)$/i.test(n)).map(n => ({dir, name: n}));
+}
+async function findMrc(doc){
+  const cands = mrcCandidates(doc);
+  if(!cands.length) throw new Error(/\.(tif|tiff|eer)\.mdoc$/i.test(doc.src.path || doc.name) ? "Frame mdocs (.tif/.eer) have no MRC image to show." : `${baseName(doc.name)}: no MRC file name to look for.`);
+  if(doc.src.kind === "server"){
+    for(const c of cands){
+      const path = c.dir + c.name;
+      const r = await fetch(`api/stat?path=${encodeURIComponent(path)}`, {cache: "no-store"});
+      if(r.ok) return {label: path, path, read: (a, b) => fetch(`api/file?path=${encodeURIComponent(path)}`, {headers: {Range: `bytes=${a}-${b-1}`}}).then(r => { if(!r.ok && r.status !== 206) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })};
+    }
+    throw new Error(`${cands[0].name} not found next to the mdoc on the server.`);
+  }
+  const fileHandle = (f, label) => ({label, read: (a, b) => f.slice(a, b).arrayBuffer()});
+  if(data.folder){
+    for(const c of cands){ const f = data.folder.files.get(c.dir + c.name); if(f) return fileHandle(f, c.dir + c.name); }
+    for(const c of cands){
+      const hits = data.folder.byName.get(c.name.toLowerCase()) || [];
+      if(hits.length === 1) return fileHandle(data.folder.files.get(hits[0]), hits[0]);
+      if(hits.length > 1) throw new Error(`${hits.length} files named ${c.name} in the data folder. Open the mdoc from the Data list so the right one is used.`);
+    }
+  }
+  for(const c of cands){ const f = data.extra.get(c.name.toLowerCase()); if(f) return fileHandle(f, c.name); }
+  throw new Error(data.folder ? `${cands[0].name} is not in the data folder.` : `Choose a data folder to load ${cands[0].name}.`);
+}
+const MODE_BYTES = {0: 1, 1: 2, 2: 4, 6: 2, 12: 2};
+function getHeader(doc){
+  if(!hdrCache.has(doc.id)) hdrCache.set(doc.id, (async () => {
+    const handle = await findMrc(doc);
+    const dv = new DataView(await handle.read(0, 1024));
+    const nx = dv.getInt32(0, true), ny = dv.getInt32(4, true), nz = dv.getInt32(8, true), mode = dv.getInt32(12, true);
+    if(!(nx > 0 && nx < 200000 && ny > 0 && ny < 200000)) throw new Error(`${handle.label}: not a little-endian MRC file.`);
+    if(!MODE_BYTES[mode]) throw new Error(`${handle.label}: MRC mode ${mode} is not supported.`);
+    const next = dv.getInt32(92, true);
+    const signedBytes = dv.getInt32(152, true) === 1146047817 ? (dv.getInt32(156, true) & 1) === 1 : false;
+    return {handle, nx, ny, nz, mode, bpp: MODE_BYTES[mode], offset: 1024 + Math.max(0, next), signedBytes};
+  })());
+  return hdrCache.get(doc.id);
+}
+// limit concurrent reads so a network share is not flooded
+let readSlots = 4; const readWait = [];
+async function withSlot(fn){ if(readSlots === 0) await new Promise(r => readWait.push(r)); readSlots--; try { return await fn(); } finally { readSlots++; const n = readWait.shift(); if(n) n(); } }
+
+const WORKER_SRC = `
+let half = null;
+function halfTable(){ if(half) return half; half = new Float32Array(65536); for(let h = 0; h < 65536; h++){ const s = (h & 0x8000) ? -1 : 1, e = (h >> 10) & 31, f = h & 1023; half[h] = e === 0 ? s*Math.pow(2,-14)*(f/1024) : e === 31 ? (f ? NaN : s*Infinity) : s*Math.pow(2,e-15)*(1+f/1024); } return half; }
+function decode(buf, mode, signedBytes){
+  if(mode === 0) return signedBytes ? new Int8Array(buf) : new Uint8Array(buf);
+  if(mode === 1) return new Int16Array(buf);
+  if(mode === 2) return new Float32Array(buf);
+  if(mode === 6) return new Uint16Array(buf);
+  if(mode === 12){ const u = new Uint16Array(buf), t = halfTable(), o = new Float32Array(u.length); for(let i = 0; i < u.length; i++) o[i] = t[u[i]]; return o; }
+  throw new Error("MRC mode " + mode);
+}
+function binImage(src, nx, ny, bin){
+  const bw = Math.floor(nx/bin), bh = Math.floor(ny/bin), out = new Float32Array(bw*bh), inv = 1/(bin*bin);
+  for(let oy = 0; oy < bh; oy++){
+    const o = oy*bw;
+    for(let dy = 0; dy < bin; dy++){
+      let ix = (oy*bin + dy)*nx;
+      for(let ox = 0; ox < bw; ox++){ let s = 0; for(let dx = 0; dx < bin; dx++) s += src[ix++]; out[o+ox] += s; }
+    }
+    for(let ox = 0; ox < bw; ox++) out[o+ox] *= inv;
+  }
+  return {out, bw, bh};
+}
+function stats(a){
+  const step = Math.max(1, Math.floor(a.length/20000)), s = [];
+  for(let i = 0; i < a.length; i += step){ const v = a[i]; if(isFinite(v)) s.push(v); }
+  s.sort((x, y) => x - y);
+  const q = p => s.length ? s[Math.min(s.length-1, Math.max(0, Math.round(p*(s.length-1))))] : 0;
+  return {lo: q(0.005), hi: q(0.995)};
+}
+function fft(re, im, inv){
+  const n = re.length;
+  for(let i = 1, j = 0; i < n; i++){ let bit = n >> 1; for(; j & bit; bit >>= 1) j ^= bit; j ^= bit; if(i < j){ let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
+  for(let len = 2; len <= n; len <<= 1){
+    const ang = 2*Math.PI/len*(inv ? 1 : -1), wr = Math.cos(ang), wi = Math.sin(ang), half = len >> 1;
+    for(let i = 0; i < n; i += len){
+      let cr = 1, ci = 0;
+      for(let k = 0; k < half; k++){
+        const a = i + k, b = a + half, xr = re[b]*cr - im[b]*ci, xi = re[b]*ci + im[b]*cr;
+        re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+        const t = cr*wr - ci*wi; ci = cr*wi + ci*wr; cr = t;
+      }
+    }
+  }
+  if(inv) for(let i = 0; i < n; i++){ re[i] /= n; im[i] /= n; }
+}
+function fft2(re, im, W, H, inv){
+  const rr = new Float64Array(W), ri = new Float64Array(W);
+  for(let y = 0; y < H; y++){ const o = y*W; for(let x = 0; x < W; x++){ rr[x] = re[o+x]; ri[x] = im[o+x]; } fft(rr, ri, inv); for(let x = 0; x < W; x++){ re[o+x] = rr[x]; im[o+x] = ri[x]; } }
+  const cr = new Float64Array(H), ci = new Float64Array(H);
+  for(let x = 0; x < W; x++){ for(let y = 0; y < H; y++){ cr[y] = re[y*W+x]; ci[y] = im[y*W+x]; } fft(cr, ci, inv); for(let y = 0; y < H; y++){ re[y*W+x] = cr[y]; im[y*W+x] = ci[y]; } }
+}
+const p2 = n => { let p = 1; while(p < n) p <<= 1; return p; };
+function padded(a, w, h, W, H, sq){ const re = new Float64Array(W*H), im = new Float64Array(W*H); for(let y = 0; y < h; y++) for(let x = 0; x < w; x++){ const v = a[y*w+x]; re[y*W+x] = sq ? v*v : v; } return {re, im}; }
+// corr(X, Y)(t) = sum_q x(q + t) y(q) = IFFT(FX * conj(FY))
+function xc(X, Y, W, H){ const re = new Float64Array(W*H), im = new Float64Array(W*H); for(let i = 0; i < W*H; i++){ re[i] = X.re[i]*Y.re[i] + X.im[i]*Y.im[i]; im[i] = X.im[i]*Y.re[i] - X.re[i]*Y.im[i]; } fft2(re, im, W, H, true); return re; }
+// masked normalized cross-correlation (Padfield 2012). Returns shift e with b(q) = a(q + e).
+function mncc(a, ma, b, mb, w, h, limX, limY){
+  const W = p2(w + limX + 1), H = p2(h + limY + 1);
+  const fa = new Float32Array(w*h), fb = new Float32Array(w*h);
+  let na = 0, nb = 0;
+  for(let i = 0; i < w*h; i++){ fa[i] = a[i]*ma[i]; fb[i] = b[i]*mb[i]; na += ma[i]; nb += mb[i]; }
+  const F = [padded(fa, w, h, W, H), padded(a.map((v, i) => v*v*ma[i]), w, h, W, H), padded(ma, w, h, W, H),
+             padded(fb, w, h, W, H), padded(b.map((v, i) => v*v*mb[i]), w, h, W, H), padded(mb, w, h, W, H)];
+  for(const X of F) fft2(X.re, X.im, W, H, false);
+  const [FA, FA2, MA, FB, FB2, MB] = F;
+  const N = xc(MA, MB, W, H), SA = xc(FA, MB, W, H), SB = xc(MA, FB, W, H), SAB = xc(FA, FB, W, H), SAA = xc(FA2, MB, W, H), SBB = xc(MA, FB2, W, H);
+  const minN = 0.08*Math.min(na, nb);
+  let best = -Infinity, bx = 0, by = 0;
+  for(let y = 0; y < H; y++){ const ty = y > H/2 ? y - H : y; if(Math.abs(ty) > limY) continue;
+    for(let x = 0; x < W; x++){ const tx = x > W/2 ? x - W : x; if(Math.abs(tx) > limX) continue;
+      const i = y*W + x, n = N[i]; if(n < minN) continue;
+      const num = SAB[i] - SA[i]*SB[i]/n, den = (SAA[i] - SA[i]*SA[i]/n)*(SBB[i] - SB[i]*SB[i]/n);
+      if(den <= 1e-12) continue;
+      const v = num/Math.sqrt(den);
+      if(v > best){ best = v; bx = tx; by = ty; } } }
+  // parabolic sub-pixel refinement of the peak
+  const at = (tx, ty) => { const i = ((ty + H) % H)*W + ((tx + W) % W), n = N[i]; if(n < minN) return NaN;
+    const den = (SAA[i] - SA[i]*SA[i]/n)*(SBB[i] - SB[i]*SB[i]/n); return den > 1e-12 ? (SAB[i] - SA[i]*SB[i]/n)/Math.sqrt(den) : NaN; };
+  const sub = (m, c, p) => { const d = m - 2*c + p; return (isFinite(d) && d < 0) ? Math.max(-0.5, Math.min(0.5, 0.5*(m - p)/d)) : 0; };
+  const fx = sub(at(bx-1, by), best, at(bx+1, by)), fy = sub(at(bx, by-1), best, at(bx, by+1));
+  return {dx: bx + fx, dy: by + fy, score: best};
+}
+self.onmessage = e => {
+  const m = e.data;
+  try {
+    if(m.op === "bin"){
+      const r = binImage(decode(m.buf, m.mode, m.signedBytes), m.nx, m.ny, m.bin), st = stats(r.out);
+      self.postMessage({id: m.id, ok: true, out: r.out, bw: r.bw, bh: r.bh, lo: st.lo, hi: st.hi}, [r.out.buffer]);
+    } else if(m.op === "corr"){
+      self.postMessage({id: m.id, ok: true, res: m.pairs.map(p => mncc(p.a, p.ma, p.b, p.mb, p.w, p.h, p.limX, p.limY))});
+    }
+  } catch(err){ self.postMessage({id: m.id, ok: false, error: String(err && err.message || err)}); }
+};`;
+let workers = null, workerSeq = 0, workerTurn = 0;
+const workerJobs = new Map();
+function runWorker(msg, transfer){
+  if(!workers){
+    const url = URL.createObjectURL(new Blob([WORKER_SRC], {type: "text/javascript"}));
+    const nw = Math.max(2, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
+    workers = Array.from({length: nw}, () => { const w = new Worker(url); w.onmessage = e => { const j = workerJobs.get(e.data.id); if(!j) return; workerJobs.delete(e.data.id); e.data.ok ? j.res(e.data) : j.rej(new Error(e.data.error)); }; return w; });
+  }
+  return new Promise((res, rej) => { const id = ++workerSeq; workerJobs.set(id, {res, rej}); workers[workerTurn++ % workers.length].postMessage({...msg, id}, transfer || []); });
+}
+async function loadSection(doc, z, binOverride){
+  const h = await getHeader(doc);
+  if(z < 0 || z >= h.nz) throw new Error(`section ${z} is outside the MRC (nz = ${h.nz}).`);
+  const bin = binOverride || Math.max(1, Math.ceil(Math.max(h.nx, h.ny)/TILE));
+  if(doc.src.kind === "server" && data.server && data.server.numpy && h.handle.path){
+    // the server reads and shrinks the piece, so only the small version crosses the network
+    const r = await withSlot(async () => {
+      const res = await fetch(`api/section?path=${encodeURIComponent(h.handle.path)}&z=${z}&bin=${bin}`, {cache: "no-store"});
+      if(!res.ok) throw new Error(`server could not read section ${z}: ${(await res.text()).slice(0, 200)}`);
+      return {buf: await res.arrayBuffer(), bw: Number(res.headers.get("X-Bw")), bh: Number(res.headers.get("X-Bh"))};
+    });
+    const raw = new Float32Array(r.buf), st = sampleStats(raw);
+    return {raw, bw: r.bw, bh: r.bh, lo: st.lo, hi: st.hi, bin, nx: h.nx, ny: h.ny};
+  }
+  const len = h.nx*h.ny*h.bpp, off = h.offset + z*len;
+  const buf = await withSlot(() => h.handle.read(off, off + len));
+  if(buf.byteLength < len) throw new Error(`MRC file is shorter than expected at section ${z}.`);
+  const r = await runWorker({op: "bin", buf, mode: h.mode, nx: h.nx, ny: h.ny, bin, signedBytes: h.signedBytes}, [buf]);
+  return {raw: r.out, bw: r.bw, bh: r.bh, lo: r.lo, hi: r.hi, bin, nx: h.nx, ny: h.ny};
+}
+function sampleStats(a){
+  const step = Math.max(1, Math.floor(a.length/20000)), s = [];
+  for(let i = 0; i < a.length; i += step){ const v = a[i]; if(isFinite(v)) s.push(v); }
+  s.sort((x, y) => x - y);
+  const q = p => s.length ? s[Math.min(s.length-1, Math.max(0, Math.round(p*(s.length-1))))] : 0;
+  return {lo: q(0.005), hi: q(0.995)};
+}
+function makeTile(raw, bw, bh, lo, hi){
+  const c = document.createElement("canvas"); c.width = bw; c.height = bh;
+  const g = c.getContext("2d"), im = g.createImageData(bw, bh), d = im.data, k = 255/Math.max(hi - lo, 1e-12);
+  for(let y = 0; y < bh; y++){
+    const src = (bh - 1 - y)*bw, dst = y*bw*4;          // MRC rows start at the bottom
+    for(let x = 0; x < bw; x++){ const v = (raw[src + x] - lo)*k, o = dst + x*4; d[o] = d[o+1] = d[o+2] = v; d[o+3] = 255; }
+  }
+  g.putImageData(im, 0, 0);
+  return c;
+}
+async function ensureSection(doc, z){
+  const key = `${doc.id}|${z}`;
+  if(imgCache.has(key)) return imgCache.get(key);
+  const r = await loadSection(doc, z);
+  const ent = {...r, tile: makeTile(r.raw, r.bw, r.bh, r.lo, r.hi)};
+  imgCache.set(key, ent);
+  return ent;
+}
+
+function startImages(L){
+  if(L.type === "atlas") L.montages.forEach(m => ensureMontage(L, m));
+  else if(L.type === "square"){
+    const f = state.focus && L.montages.find(m => m.key === state.focus.key);
+    if(f) ensureMontage(L, f);
+    else if(L.montages.length === 1) ensureMontage(L, L.montages[0]);
+  } else ensureItems(L);
+  updateImgStatus(L);
+}
+async function loadAllMontages(L){ for(const m of L.montages) await ensureMontage(L, m); }
+async function ensureItems(L){
+  const todo = L.items.filter(it => !imgCache.has(it.imgKey) && !imgFailures.has(it.doc.id));
+  L.imgProg = {done: 0, total: todo.length};
+  await Promise.all(todo.map(async it => {
+    try { await ensureSection(it.doc, Number(it.sec.index)); }
+    catch(e){ imgFailures.set(it.doc.id, e.message); L.imgErr.add(e.message); }
+    L.imgProg.done++; updateImgStatus(L); scheduleRender();
+  }));
+  updateImgStatus(L);
+}
+async function ensureMontage(L, mont){
+  const key = mont.key;
+  if(montState.has(key)) return montState.get(key).promise;
+  const st = {state: "loading", done: 0, total: mont.pieceSecs.length};
+  montState.set(key, st);
+  st.promise = (async () => {
+    updateImgStatus(L);
+    try { await getHeader(mont.doc); }
+    catch(e){ st.state = "error"; L.imgErr.add(e.message); montState.delete(key); updateImgStatus(L); return; }
+    const ents = [];
+    await Promise.all(mont.pieceSecs.map(async sec => {
+      try { const e = await ensureSection(mont.doc, Number(sec.index)); ents.push({sec, e}); }
+      catch(err){ L.imgErr.add(`Piece ${sec.index}: ${err.message}`); }
+      st.done++; updateImgStatus(L); scheduleRender();
+    }));
+    // one contrast for the whole montage
+    const med = a => { const b = a.slice().sort((x, y) => x - y); return b[b.length >> 1]; };
+    if(ents.length){
+      const lo = med(ents.map(x => x.e.lo)), hi = med(ents.map(x => x.e.hi));
+      for(const {e} of ents) if(e.raw){ e.tile = makeTile(e.raw, e.bw, e.bh, lo, hi); e.lo = lo; e.hi = hi; }
+    }
+    const needXcorr = mont.pieceSecs.some(s => !nums(s.kv.AlignedPieceCoords).length && !nums(s.kv.AlignedPieceCoordsVS).length);
+    if(needXcorr && ents.length > 1 && !alignCache.has(key)){
+      st.state = "aligning"; updateImgStatus(L);
+      try { await alignMontage(mont, ents); } catch(e){ L.imgErr.add(`Alignment: ${e.message}`); }
+    }
+    for(const {e} of ents) e.raw = null;      // keep only the display tiles
+    st.state = "done";
+    rebuildLayerKeepView(L);
+  })();
+  return st.promise;
+}
+function rebuildLayerKeepView(L){
+  if(!state.layers.includes(L)) return;
+  buildLayer(L);
+  if(state.focus){ const m = L.montages.find(x => x.key === state.focus.key); if(m) state.focus = m; }
+  reselect(); updateImgStatus(L); render();
+}
+
+function highPass(raw, w, h, r){
+  // raw minus a (2r+1)-wide box mean, edges clamped; two separable running-sum passes
+  const tmp = new Float32Array(w*h), out = new Float32Array(w*h), n = 2*r + 1;
+  for(let y = 0; y < h; y++){ const o = y*w; let s = 0;
+    for(let k = -r; k <= r; k++) s += raw[o + Math.min(w-1, Math.max(0, k))];
+    for(let x = 0; x < w; x++){ tmp[o+x] = s/n; s += raw[o + Math.min(w-1, x + r + 1)] - raw[o + Math.max(0, x - r)]; } }
+  for(let x = 0; x < w; x++){ let s = 0;
+    for(let k = -r; k <= r; k++) s += tmp[Math.min(h-1, Math.max(0, k))*w + x];
+    for(let y = 0; y < h; y++){ out[y*w+x] = raw[y*w+x] - s/n; s += tmp[Math.min(h-1, y + r + 1)*w + x] - tmp[Math.max(0, y - r)*w + x]; } }
+  return out;
+}
+function down2(a, w, h, sx, sy){
+  const W = Math.floor(w/sx), H = Math.floor(h/sy), o = new Float32Array(W*H), k = 1/(sx*sy);
+  for(let y = 0; y < H; y++) for(let x = 0; x < W; x++){
+    let v = 0; for(let j = 0; j < sy; j++) for(let i = 0; i < sx; i++) v += a[(y*sy + j)*w + x*sx + i];
+    o[y*W + x] = v*k;
+  }
+  return o;
+}
+/* sloppy alignment: correlate the overlap of each pair of neighbouring pieces, then solve for piece positions */
+async function alignMontage(mont, ents){
+  const P = ents.map(({sec, e}) => ({z: Number(sec.index), pc: nums(sec.kv.PieceCoordinates), e})).filter(p => p.pc.length >= 2 && p.e.raw);
+  P.sort((a, b) => a.pc[1] - b.pc[1] || a.pc[0] - b.pc[0]);   // fixed order: rows bottom to top, left to right
+  if(P.length < 2) return;
+  const {nx, ny, bin, bw, bh} = P[0].e;
+  // high-pass each piece (subtract a 13 px box mean) so ice gradients do not dominate the match
+  const hpImg = new Map();
+  for(const p of P) hpImg.set(p.z, highPass(p.e.raw, bw, bh, 6));
+  // put one image's region onto a canvas laid out in piece A's nominal frame (binned pixels), with its mask
+  const paint = (img, r, ox, oy, U) => {
+    const c = new Float32Array(U.w*U.h), m = new Float32Array(U.w*U.h), rw = r.x1 - r.x0, rh = r.y1 - r.y0;
+    for(let y = 0; y < rh; y++){ const src = (r.y0 - oy + y)*bw + (r.x0 - ox), dst = (r.y0 - U.y0 + y)*U.w + (r.x0 - U.x0);
+      for(let x = 0; x < rw; x++){ c[dst + x] = img[src + x]; m[dst + x] = 1; } }
+    return {c, m};
+  };
+  const clip = (r, q) => ({x0: Math.max(r.x0, q.x0), x1: Math.min(r.x1, q.x1), y0: Math.max(r.y0, q.y0), y1: Math.min(r.y1, q.y1)});
+  const pairs = [];
+  for(let i = 0; i < P.length; i++) for(let j = i + 1; j < P.length; j++){
+    const Dx = Math.round((P[j].pc[0] - P[i].pc[0])/bin), Dy = Math.round((P[j].pc[1] - P[i].pc[1])/bin);
+    const A = {x0: 0, x1: bw, y0: 0, y1: bh}, B = {x0: Dx, x1: Dx + bw, y0: Dy, y1: Dy + bh};
+    const O = clip(A, B), ow = O.x1 - O.x0, oh = O.y1 - O.y0;
+    if(ow <= 0 || oh <= 0 || !(ow >= 0.5*bw || oh >= 0.5*bh)) continue;
+    // each side contributes the overlap plus an equal margin of its own interior, so shifts up to the overlap width can be found
+    const E = {x0: O.x0 - ow, x1: O.x1 + ow, y0: O.y0 - oh, y1: O.y1 + oh};
+    const ra = clip(E, A), rb = clip(E, B);
+    const U = {x0: Math.min(ra.x0, rb.x0), y0: Math.min(ra.y0, rb.y0)};
+    U.w = Math.max(ra.x1, rb.x1) - U.x0; U.h = Math.max(ra.y1, rb.y1) - U.y0;
+    const narrow = Math.min(ow, oh);
+    let limX = Math.min(ow, Math.round(narrow*1.2)), limY = Math.min(oh, Math.round(narrow*1.2));
+    const A1 = paint(hpImg.get(P[i].z), ra, 0, 0, U), B1 = paint(hpImg.get(P[j].z), rb, Dx, Dy, U);
+    let a = A1.c, ma = A1.m, b = B1.c, mb = B1.m, w = U.w, h = U.h, fx = 1, fy = 1;
+    const sh = (sx, sy) => { a = down2(a, w, h, sx, sy); ma = down2(ma, w, h, sx, sy); b = down2(b, w, h, sx, sy); mb = down2(mb, w, h, sx, sy); w = Math.floor(w/sx); h = Math.floor(h/sy); };
+    if(h >= 2*w && h >= 128){ sh(1, 2); limY = Math.ceil(limY/2); fy = 2; }
+    else if(w >= 2*h && w >= 128){ sh(2, 1); limX = Math.ceil(limX/2); fx = 2; }
+    if(w < 8 || h < 8) continue;
+    pairs.push({i, j, Dx, Dy, a, ma, b, mb, w, h, limX, limY, fx, fy});
+  }
+  if(!pairs.length) return;
+  const nw = workers ? workers.length : 2, chunk = Math.ceil(pairs.length/nw), jobs = [];
+  for(let k = 0; k < pairs.length; k += chunk) jobs.push(runWorker({op: "corr", pairs: pairs.slice(k, k + chunk).map(p => ({a: p.a, ma: p.ma, b: p.b, mb: p.mb, w: p.w, h: p.h, limX: p.limX, limY: p.limY}))}));
+  const res = (await Promise.all(jobs)).flatMap(r => r.res);
+  res.forEach((r, k) => { r.dx *= pairs[k].fx; r.dy *= pairs[k].fy; });
+  const cons = pairs.map((p, k) => ({i: p.i, j: p.j, t: [(p.Dx + res[k].dx)*bin, (p.Dy + res[k].dy)*bin], ok: res[k].score > 0.15, nominal: [p.Dx*bin, p.Dy*bin], score: res[k].score}));
+  let pos = P.map(p => [p.pc[0], p.pc[1]]);
+  // least-squares positions from the accepted overlaps (Gauss-Seidel), optionally leaving one out
+  const solve = (start, skip, iters) => {
+    const q = start.map(v => v.slice()), adj = P.map(() => []);
+    for(const c of cons){
+      if(c === skip) continue;
+      const t = c.ok ? c.t : c.nominal, w = c.ok ? 1 : 0.02;
+      adj[c.i].push({j: c.j, t: [-t[0], -t[1]], w}); adj[c.j].push({j: c.i, t, w});
+    }
+    for(let it = 0; it < iters; it++) for(let i = 0; i < P.length; i++){
+      let sx = 0, sy = 0, sw = 0;
+      for(const a of adj[i]){ sx += a.w*(q[a.j][0] + a.t[0]); sy += a.w*(q[a.j][1] + a.t[1]); sw += a.w; }
+      if(sw > 0){ q[i][0] = sx/sw; q[i][1] = sy/sw; }
+    }
+    return q;
+  };
+  // leave-one-out check: an overlap whose measurement disagrees with what the others predict is rejected
+  let rejected = 0;
+  pos = solve(pos, null, 400);
+  for(let round = 0; round < 8; round++){
+    const deg = P.map(() => 0), cand = [];
+    for(const c of cons) if(c.ok){ deg[c.i]++; deg[c.j]++; }
+    for(const c of cons){
+      // a piece's last good overlap cannot be checked against the others, so it is kept
+      if(!c.ok || deg[c.i] < 2 || deg[c.j] < 2) continue;
+      const q = solve(pos, c, 150);
+      cand.push({c, r: Math.hypot(q[c.j][0] - q[c.i][0] - c.t[0], q[c.j][1] - q[c.i][1] - c.t[1])});
+    }
+    const wr = Math.max(0, ...cand.map(x => x.r));
+    if(wr <= 3*bin) break;
+    // near-ties (e.g. the two overlaps of a corner piece disagreeing): drop the weaker match
+    const worst = cand.filter(x => x.r >= 0.8*wr).sort((a, b) => a.c.score - b.c.score)[0].c;
+    worst.ok = false; rejected++;
+    pos = solve(pos, null, 400);
+  }
+  const good = cons.filter(c => c.ok).length;
+  // keep the mean where the nominal layout had it
+  const n = P.length; let ex = 0, ey = 0;
+  P.forEach((p, i) => { ex += pos[i][0] - p.pc[0]; ey += pos[i][1] - p.pc[1]; });
+  ex /= n; ey /= n;
+  let maxShift = 0;
+  const map = new Map();
+  P.forEach((p, i) => { const x = pos[i][0] - ex, y = pos[i][1] - ey; map.set(p.z, [x, y]); maxShift = Math.max(maxShift, Math.hypot(x - p.pc[0], y - p.pc[1])); });
+  alignCache.set(mont.key, {pos: map, good, total: pairs.length, maxShift, rejected});
+}
+
+function imgControls(L){
+  const montage = L.type === "atlas" || L.type === "square";
+  const dis = canLoad(L) ? "" : "disabled";
+  let h = `<label class="lcheck full" for="im${L.id}"><input type="checkbox" id="im${L.id}" data-act="img" ${L.loadImages?"checked":""} ${dis}> Load images from .mrc</label>`;
+  if(L.loadImages && montage){
+    h += `<label class="full" for="al${L.id}">Piece alignment<select id="al${L.id}" data-act="align">
+      ${[["auto","Auto: mdoc AlignedPieceCoords, else cross-correlate"],["xcorr","Cross-correlate overlaps"],["mdoc","mdoc AlignedPieceCoords"],["nominal","Nominal PieceCoordinates"],["stage","Stage positions (no alignment)"]].map(([v,l]) => `<option value="${v}" ${L.alignMode===v?"selected":""}>${l}</option>`).join("")}</select></label>`;
+    if(L.type === "square" && L.montages.length > 1) h += `<button class="btn small full" data-act="imgall">Load all ${L.montages.length} montages</button>`;
+  }
+  h += `<div class="limg" id="limg${L.id}">${imgStatusText(L)}</div>`;
+  return h;
+}
+function imgStatusText(L){
+  if(!canLoad(L)) return L.docs.some(d => d.src.kind !== "demo") ? "To show images, select the .mrc together with the .mdoc (or add it now with the same Open button)." : "";
+  if(!L.loadImages) return "";
+  const parts = [];
+  if(L.type === "atlas" || L.type === "square"){
+    let done = 0;
+    for(const m of L.montages){
+      const st = montState.get(m.key);
+      if(!st) continue;
+      if(st.state === "done") done++;
+      else parts.push(`${m.name}: ${st.state === "aligning" ? "aligning" : `reading ${st.done}/${st.total} pieces`}`);
+    }
+    parts.unshift(`${done} of ${L.montages.length} montage${L.montages.length===1?"":"s"} loaded`);
+    if(L.type === "square" && done < L.montages.length) parts.push("Click a square map to load it.");
+    const f = state.focus && L.montages.find(m => m.key === state.focus.key) || (L.montages.length === 1 ? L.montages[0] : null);
+    if(f && montState.get(f.key)?.state === "done"){
+      const a = alignCache.get(f.key);
+      const how = {mdoc: "mdoc AlignedPieceCoords", xcorr: a ? `cross-correlation, ${a.good}/${a.total} overlaps used${a.rejected ? ` (${a.rejected} rejected as inconsistent)` : ""}, largest correction ${Math.round(a.maxShift)} px` : "cross-correlation", nominal: "nominal PieceCoordinates", stage: "stage positions"}[f.alignUsed];
+      parts.push(`${f.name}: placed by ${how}`);
+    }
+  } else if(L.imgProg){
+    parts.push(`${L.imgProg.done} of ${L.imgProg.total} images read`);
+  }
+  return esc(parts.join(" · ")) + [...L.imgErr].slice(0, 3).map(e => `<br><span style="color:var(--warn)">${esc(e)}</span>`).join("");
+}
+function updateImgStatus(L){ const el = document.getElementById(`limg${L.id}`); if(el) el.innerHTML = imgStatusText(L); }
+
+/* ---------- SerialEM calibrations: image shift -> stage µm per MagIndex and CameraIndex ---------- */
+const CAL_KEY = "mdocStageMap.calibrations";
+let CAL = null;            // {is: {"idx|cam": {m, mag}}, s2c: {"idx|cam": {m, mag}}, name}
+const calCache = new Map();
+function parseCalibrations(text, name){
+  const L = text.split(/\r?\n/), is = {}, s2c = {};
+  for(let i = 0; i < L.length; i++){
+    const t = L[i].trim().split(/\s+/);
+    if(t[0] === "ImageShiftMatrix"){
+      const n = Number(t[1]);
+      for(let k = 1; k <= n && i + k < L.length; k++){
+        const v = L[i + k].trim().split(/\s+/).map(Number);
+        if(v.length >= 6) is[`${v[0]}|${v[1]}`] = {m: v.slice(2, 6), mag: v[6]};
+      }
+      i += n;
+    } else if(t[0] === "StageToCameraMatrix" && t.length >= 7){
+      const v = t.slice(1).map(Number);
+      s2c[`${v[0]}|${v[1]}`] = {m: v.slice(2, 6), mag: v[v.length - 1]};
+    }
+  }
+  return {is, s2c, name, nIS: Object.keys(is).length, nS2C: Object.keys(s2c).length};
+}
+const inv2 = m => { const d = m[0]*m[3] - m[1]*m[2]; return [m[3]/d, -m[1]/d, -m[2]/d, m[0]/d]; };
+const mul2 = (a, b) => [a[0]*b[0] + a[1]*b[2], a[0]*b[1] + a[1]*b[3], a[2]*b[0] + a[3]*b[2], a[2]*b[1] + a[3]*b[3]];
+// IS units -> stage µm for one image, from its MagIndex and CameraIndex
+// pixel size (Å, unbinned) a camera would have at this mag, from its nearest stage calibration
+function camPixelAt(cam, idx, mag){
+  const rows = Object.entries(CAL.s2c).map(([k, v]) => ({i: Number(k.split("|")[0]), c: Number(k.split("|")[1]), v})).filter(x => x.c === cam);
+  if(!rows.length || !(mag > 0)) return NaN;
+  const r = rows.sort((a, b) => Math.abs(a.i - idx) - Math.abs(b.i - idx))[0], m = r.v.m;
+  return 1e4/Math.sqrt(Math.abs(m[0]*m[3] - m[1]*m[2]))*r.v.mag/mag;
+}
+// choose the ImageShiftMatrix row: the mag index decides; the camera column is matched if it can be
+function pickISRow(idx, cam, mag, unbinPx){
+  let rows = Object.entries(CAL.is).map(([k, v]) => ({i: Number(k.split("|")[0]), c: Number(k.split("|")[1]), v}));
+  if(isFinite(idx)) rows = rows.filter(r => r.i === idx);
+  else if(mag > 0) rows = rows.filter(r => Math.abs(r.v.mag/mag - 1) < 0.005);
+  else return null;
+  if(!rows.length) return null;
+  const exact = rows.find(r => r.c === cam);
+  if(exact) return {...exact, why: ""};
+  if(rows.length === 1) return {...rows[0], why: "only camera calibrated at this mag"};
+  if(unbinPx > 0){
+    const scored = rows.map(r => ({r, d: Math.abs(Math.log(camPixelAt(r.c, r.i, r.v.mag)/unbinPx))})).filter(x => isFinite(x.d)).sort((a, b) => a.d - b.d);
+    if(scored.length) return {...scored[0].r, why: "camera chosen by pixel size"};
+  }
+  return {...rows[0], why: "first camera at this mag"};
+}
+// IS units -> stage µm for one image, from its MagIndex (or nominal magnification) and camera
+function calMatrixFor(doc, sec){
+  if(!CAL) return null;
+  const idx = Math.round(num(get(doc, sec, "MagIndex"))), camIn = Math.round(num(get(doc, sec, "CameraIndex"))), magIn = num(get(doc, sec, "Magnification"));
+  const ps = num(get(doc, sec, "PixelSpacing")), bin = num(get(doc, sec, "Binning")) || 1;
+  const key = `${idx}|${camIn}|${magIn}|${ps}|${bin}`;
+  if(calCache.has(key)) return calCache.get(key);
+  const row = pickISRow(idx, camIn, magIn, ps > 0 ? ps/bin : NaN);
+  if(!row){ calCache.set(key, null); return null; }
+  const A = row.v, cam = row.c;
+  let C, how;
+  const S = CAL.s2c[`${row.i}|${cam}`];
+  if(S){ C = inv2(S.m); how = "stage calibration at this mag"; }
+  else {
+    // no stage calibration at this mag: take the camera orientation from the nearest calibrated mag
+    // of the same camera, and the pixel size from the mdoc (PixelSpacing is for the binned image)
+    // same camera; prefer mags whose image-shift rotation matches (same lens mode, e.g. not low mag), then the closest index
+    const isRot = m => Math.atan2(m[2], m[0])*180/Math.PI, r0 = isRot(A.m);
+    const all = Object.entries(CAL.s2c).map(([k, v]) => ({i: Number(k.split("|")[0]), c: Number(k.split("|")[1]), v}))
+      .map(x => { const a = CAL.is[`${x.i}|${x.c}`]; const d = a ? Math.abs(((isRot(a.m) - r0 + 540) % 360) - 180) : 999; return {...x, score: Math.abs(x.i - row.i) + (d > 10 ? 1000 : 0)}; })
+      .sort((a, b) => a.score - b.score);
+    const near = all.find(x => x.c === cam) || all[0];      // same camera if it has any stage calibration
+    if(!near || !(ps > 0)){ calCache.set(key, null); return null; }
+    const Ci = inv2(near.v.m), sc = Math.sqrt(Math.abs(Ci[0]*Ci[3] - Ci[1]*Ci[2])), um = ps/bin/1e4;
+    C = Ci.map(v => v/sc*um);
+    how = `orientation from mag index ${near.i}${near.c !== cam ? ` (camera ${near.c})` : ""}, pixel ${(ps/bin).toPrecision(4)} Å`;
+  }
+  const m = mul2(C, A.m), det = m[0]*m[3] - m[1]*m[2];
+  const out = {m, idx: row.i, cam, mag: A.mag, scale: Math.sqrt(Math.abs(det)), rot: Math.atan2(m[2], m[0])*180/Math.PI, mirrored: det < 0,
+    desc: `MagIndex ${row.i} (${A.mag}×), calibration camera ${cam}${row.why ? ", " + row.why : ""}; ${how}`};
+  calCache.set(key, out);
+  return out;
+}
+function calLine(L){
+  if(L.type !== "exposure" && L.type !== "tilt") return "";
+  const key = L.items.length ? magKey(L.items[0].doc, L.items[0].sec) : null;
+  const btns = key ? `<div class="row full" style="display:flex;gap:6px;flex-wrap:wrap;grid-column:1/-1"><button class="btn small" data-act="refine">Refine by correlation</button><button class="btn small" data-act="calib">${USERCAL[key] ? "Recalibrate" : "Calibrate"} image shift (${esc(magLabel(key))})</button>${USERCAL[key] ? `<button class="btn small" data-act="calclear">Forget</button>` : ""}</div>` : "";
+  const nref = L.items.filter(it => it.refined).length;
+  const refLine = nref ? `<div class="limg">${nref} of ${L.items.length} positions refined by correlation.</div>` : "";
+  if(L.userCalUsed){ const u = L.userCalUsed; return `<div class="limg">Image shift from your calibration at ${esc(magLabel(key))}: ${u.n} points${u.n > 3 ? `, fit error ${u.rms.toFixed(2)} µm` : ""}, ${u.scale.toFixed(3)} µm per unit, ${u.rot.toFixed(1)}°${u.mirrored ? ", mirrored" : ""} (${esc(u.date)})</div>${refLine}${btns}`; }
+  return calLineFile(L) + refLine + btns;
+}
+function calLineFile(L){
+  if(L.calUsed){ const c = L.calUsed; return `<div class="limg">Image shift from calibration: MagIndex ${c.idx} (${c.mag}×), camera ${c.cam}: ${c.scale.toFixed(3)} µm per unit, ${c.rot.toFixed(1)}°${c.mirrored ? ", mirrored" : ""}</div>`; }
+  if(CAL && L.calMissing){
+    const it = L.items[0], idx = it ? get(it.doc, it.sec, "MagIndex") : null, mag = it ? get(it.doc, it.sec, "Magnification") : null;
+    return `<div class="limg" style="color:var(--warn)">No calibration row for MagIndex ${esc(idx ?? "?")} (${esc(mag ?? "?")}×) in the calibration file; using the fallback settings.</div>`;
+  }
+  return "";
+}
+function setCalibrations(cal, save){
+  CAL = cal; calCache.clear();
+  if(save){ try { cal ? localStorage.setItem(CAL_KEY, JSON.stringify(cal)) : localStorage.removeItem(CAL_KEY); } catch(e){} }
+  $("#calStatus").textContent = cal ? `Using ${cal.name}: ${cal.nIS} image-shift and ${cal.nS2C} stage calibrations. Each image picks its own MagIndex and CameraIndex.` : "With the calibration file, each image uses the matrix for its own MagIndex and CameraIndex. Without it, the values below apply to all images.";
+  $("#calClear").hidden = !cal;
+  rebuildKeepFocus();
+}
+function loadSavedCalibrations(){ try { const c = JSON.parse(localStorage.getItem(CAL_KEY) || "null"); if(c && c.is) setCalibrations(c, false); } catch(e){} }
+
+/* ---------- your own image-shift calibration: true = StagePosition + M·IS + c, per mag index ---------- */
+const UCAL_KEY = "mdocStageMap.userISCal";
+let USERCAL = {};
+try { USERCAL = JSON.parse(localStorage.getItem(UCAL_KEY) || "{}") || {}; } catch(e){ USERCAL = {}; }
+function saveUserCal(){ try { localStorage.setItem(UCAL_KEY, JSON.stringify(USERCAL)); } catch(e){} }
+function magKey(doc, sec){
+  const idx = Math.round(num(get(doc, sec, "MagIndex")));
+  if(isFinite(idx)) return `i${idx}`;
+  const mag = Math.round(num(get(doc, sec, "Magnification")));
+  return isFinite(mag) ? `m${mag}` : null;
+}
+function magLabel(k){
+  if(!k) return "?";
+  if(k[0] === "i"){ const u = USERCAL[k], mag = u && u.mag; return `MagIndex ${k.slice(1)}${mag ? ` · ${mag}×` : ""}`; }
+  return `${k.slice(1)}×`;
+}
+function userCalFor(doc, sec){ const k = magKey(doc, sec); return k ? USERCAL[k] || null : null; }
+
+// least-squares fit of tx = a·ISx + b·ISy + c for each axis
+function solveIS(pairs){
+  const n = pairs.length;
+  if(n < 3) return null;
+  const S = [[0,0,0],[0,0,0],[0,0,0]], bx = [0,0,0], by = [0,0,0];
+  for(const p of pairs){
+    const r = [p.IS[0], p.IS[1], 1], tx = p.target[0] - p.st[0], ty = p.target[1] - p.st[1];
+    for(let i = 0; i < 3; i++){ bx[i] += r[i]*tx; by[i] += r[i]*ty; for(let j = 0; j < 3; j++) S[i][j] += r[i]*r[j]; }
+  }
+  const det3 = m => m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1]) - m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0]) + m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]);
+  const D = det3(S);
+  // the image shifts must span two directions: compare with the spread of the shifts themselves
+  const spread = pairs.reduce((a, p) => a + p.IS[0]*p.IS[0] + p.IS[1]*p.IS[1], 0)/n + 1e-9;
+  if(Math.abs(D) < 1e-6*n*n*n*spread*spread) return {error: "The image shifts of these points lie on one line. Add a point whose image shift points in another direction."};
+  const cramer = b => [0, 1, 2].map(k => det3(S.map((row, i) => row.map((v, j) => j === k ? b[i] : v)))/D);
+  const X = cramer(bx), Y = cramer(by);
+  const m = [X[0], X[1], Y[0], Y[1]], c = [X[2], Y[2]];
+  const res = pairs.map(p => { const px = p.st[0] + m[0]*p.IS[0] + m[1]*p.IS[1] + c[0], py = p.st[1] + m[2]*p.IS[0] + m[3]*p.IS[1] + c[1]; return Math.hypot(px - p.target[0], py - p.target[1]); });
+  const rms = Math.sqrt(res.reduce((a, r) => a + r*r, 0)/n), det = m[0]*m[3] - m[1]*m[2];
+  return {m, c, res, rms, n, scale: Math.sqrt(Math.abs(det)), rot: Math.atan2(m[2], m[0])*180/Math.PI, mirrored: det < 0};
+}
+function startCalib(L){
+  if(!L.items.length) return;
+  if(state.refine) closeRefine();
+  const key = magKey(L.items[0].doc, L.items[0].sec);
+  if(!key) return setMsg("These images have no MagIndex or Magnification, so a calibration cannot be stored for them.");
+  const mag = num(get(L.items[0].doc, L.items[0].sec, "Magnification"));
+  state.calib = {L, key, mag, pairs: [], pending: null, fit: null};
+  state.selected = null; showInspector();
+  renderCalPanel(); render();
+}
+function endCalib(){ state.calib = null; $("#calPanel").hidden = true; render(); }
+function calibClick(p){
+  const c = state.calib;
+  if(!c.pending){
+    const it = hitTest(...p, c.L.type);
+    if(!it || it.L !== c.L){ setMsg("Click one of the exposures in this layer first."); return; }
+    if(magKey(it.doc, it.sec) !== c.key){ setMsg(`That image is at a different magnification (${magLabel(magKey(it.doc, it.sec))}).`); return; }
+    c.pending = {doc: it.doc, sec: it.sec};
+  } else {
+    const st = stagePos(c.pending.doc, c.pending.sec), is = nums(c.pending.sec.kv.ImageShift);
+    const w = toWorld(...p), off = state.settings.offset, o = off.on && c.L.offsetApplied ? [off.x, off.y] : [0, 0];
+    const pair = {doc: c.pending.doc, sec: c.pending.sec, st, IS: is.length >= 2 ? is.slice(0, 2) : [0, 0], target: [w[0] - o[0], w[1] - o[1]],
+      label: baseName(c.pending.doc.name) + (imageSections(c.pending.doc).length > 1 ? `:${c.pending.sec.index}` : "")};
+    const k = c.pairs.findIndex(q => q.doc === pair.doc && q.sec === pair.sec);
+    if(k >= 0) c.pairs[k] = pair; else c.pairs.push(pair);
+    c.pending = null;
+    c.fit = solveIS(c.pairs);
+  }
+  renderCalPanel(); render();
+}
+function renderCalPanel(){
+  const c = state.calib, el = $("#calPanel");
+  if(!c){ el.hidden = true; return; }
+  el.hidden = false;
+  const f = c.fit && !c.fit.error ? c.fit : null;
+  const rows = c.pairs.map((q, i) => `<tr><td>${i + 1}. ${esc(q.label.length > 16 ? "…" + q.label.slice(-15) : q.label)}</td><td>${q.IS[0].toFixed(2)}, ${q.IS[1].toFixed(2)}</td><td>${f ? f.res[i].toFixed(2) : "–"}</td></tr>`).join("");
+  const need = Math.max(0, 3 - c.pairs.length);
+  el.innerHTML = `<h3>Calibrate image shift · ${esc(magLabel(c.key))}${c.mag ? ` (${c.mag}×)` : ""}</h3>
+    <div class="step">${c.pending ? `<b>Now click where this exposure really is</b> on the square map.` : `<b>Click an exposure</b>, then click where it really is on the square map.`} Use points whose image shifts point in different directions (for example, different shots of a multishot pattern).</div>
+    ${c.pairs.length ? `<table><tr><th>Point</th><th>ImageShift</th><th>Error µm</th></tr>${rows}</table>` : ""}
+    <div class="res">${need ? `${need} more point${need === 1 ? "" : "s"} needed.` : c.fit && c.fit.error ? esc(c.fit.error) : `Fit: ${f.scale.toFixed(3)} µm per unit, ${f.rot.toFixed(1)}°${f.mirrored ? ", mirrored" : ""}, offset ${f.c[0].toFixed(2)}, ${f.c[1].toFixed(2)} µm${f.n > 3 ? `, error ${f.rms.toFixed(2)} µm` : " (exact with 3 points; add more to check it)"}`}</div>
+    <div class="row">
+      <button class="btn small primary" id="calApply" ${f ? "" : "disabled"}>Apply and save</button>
+      <button class="btn small" id="calUndo" ${c.pairs.length || c.pending ? "" : "disabled"}>Undo</button>
+      <button class="btn small" id="calCancel">Close</button>
+    </div>`;
+  $("#calApply").addEventListener("click", applyCalib);
+  $("#calUndo").addEventListener("click", () => { if(c.pending) c.pending = null; else c.pairs.pop(); c.fit = solveIS(c.pairs); renderCalPanel(); render(); });
+  $("#calCancel").addEventListener("click", endCalib);
+}
+function applyCalib(){
+  const c = state.calib, f = c && c.fit;
+  if(!f || f.error) return;
+  USERCAL[c.key] = {m: f.m, c: f.c, n: f.n, rms: f.rms, scale: f.scale, rot: f.rot, mirrored: f.mirrored, mag: c.mag || null, date: new Date().toLocaleString(),
+    points: c.pairs.map(q => ({st: q.st, IS: q.IS, target: q.target}))};
+  saveUserCal();
+  rebuildKeepFocus();
+  setMsg(`Saved your image-shift calibration for ${magLabel(c.key)} from ${f.n} points.`);
+  renderCalPanel();
+}
+function drawCalib(){
+  const c = state.calib, off = state.settings.offset, o = off.on && c.L.offsetApplied ? [off.x, off.y] : [0, 0];
+  const find = (doc, sec) => c.L.items.find(it => it.doc === doc && it.sec === sec);
+  ctx.lineWidth = 1.5; ctx.font = `600 11px ${getFont("--font-body")}`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  c.pairs.forEach((q, i) => {
+    const it = find(q.doc, q.sec), t = toScreen(q.target[0] + o[0], q.target[1] + o[1]);
+    ctx.strokeStyle = theme.accent; ctx.fillStyle = theme.accent;
+    if(it){ const a = toScreen(it.cx, it.cy); ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(t[0], t[1]); ctx.stroke(); ctx.setLineDash([]); }
+    ctx.beginPath(); ctx.arc(t[0], t[1], 6, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(t[0]-9, t[1]); ctx.lineTo(t[0]+9, t[1]); ctx.moveTo(t[0], t[1]-9); ctx.lineTo(t[0], t[1]+9); ctx.stroke();
+    ctx.fillText(String(i + 1), t[0] + 10, t[1] - 9);
+  });
+  if(c.pending){ const it = find(c.pending.doc, c.pending.sec); if(it){ const a = toScreen(it.cx, it.cy); ctx.strokeStyle = theme.accent; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(a[0], a[1], Math.max(8, it.w*state.view.s*0.8), 0, Math.PI*2); ctx.stroke(); } }
+}
+
+/* ---------- correlation refinement: View images onto the square map, acquisition images into their View ---------- */
+const REF_KEY = "mdocStageMap.refined";
+let REFINED = {};
+try { REFINED = JSON.parse(localStorage.getItem(REF_KEY) || "{}") || {}; } catch(e){ REFINED = {}; }
+function saveRefined(){ try { localStorage.setItem(REF_KEY, JSON.stringify(REFINED)); } catch(e){} const n = Object.keys(REFINED).length, el = document.getElementById("refCount"); if(el) el.textContent = n ? `(${n})` : ""; }
+const refKey = it => `${it.doc.src.kind}:${it.doc.src.path}|${it.sec.index}`;
+const hiCache = new Map();
+const nativeUm = (doc, sec) => num(get(doc, sec, "PixelSpacing"))/1e4;
+// one section at roughly the requested pixel size (µm), as a display canvas
+async function imageAt(doc, sec, targetUm){
+  const h = await getHeader(doc), nat = nativeUm(doc, sec);
+  let bin = nat > 0 ? Math.max(1, Math.floor(targetUm/nat + 1e-6)) : Math.ceil(Math.max(h.nx, h.ny)/TILE);
+  bin = Math.max(bin, Math.ceil(Math.max(h.nx, h.ny)/3072));
+  const z = Number(sec.index), key = `${doc.id}|${z}|b${bin}`;
+  if(hiCache.has(key)) return hiCache.get(key);
+  const r = await loadSection(doc, z, bin);
+  const ent = {canvas: makeTile(r.raw, r.bw, r.bh, r.lo, r.hi), bin};
+  hiCache.set(key, ent);
+  if(hiCache.size > 48) hiCache.delete(hiCache.keys().next().value);
+  return ent;
+}
+// draw parts {canvas, cx, cy, w, h, rot, flip} onto a world grid (x right, y up); mask = coverage
+function renderParts(parts, R, res, mask){
+  const W = Math.max(8, Math.ceil((R[1]-R[0])/res)), H = Math.max(8, Math.ceil((R[3]-R[2])/res));
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d"); g.fillStyle = "#000"; g.fillRect(0, 0, W, H); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+  for(const t of parts){
+    g.save(); g.translate((t.cx - R[0])/res, (R[3] - t.cy)/res); g.rotate(-t.rot*Math.PI/180); g.scale(1, t.flip || 1);
+    const w = t.w/res, h = t.h/res;
+    if(mask){ g.fillStyle = "#fff"; g.fillRect(-w/2, -h/2, w, h); } else g.drawImage(t.canvas, -w/2, -h/2, w, h);
+    g.restore();
+  }
+  const d = g.getImageData(0, 0, W, H).data, out = new Float32Array(W*H);
+  for(let i = 0; i < W*H; i++) out[i] = mask ? (d[i*4] > 250 ? 1 : 0) : d[i*4];
+  return {out, W, H};
+}
+function prepMatch(img, m, W, H, r){
+  let s = 0, n = 0; for(let i = 0; i < img.length; i++) if(m[i]){ s += img[i]; n++; }
+  const mean = n ? s/n : 0, f = img.slice(); for(let i = 0; i < f.length; i++) if(!m[i]) f[i] = mean;
+  return highPass(f, W, H, r);
+}
+async function nccBatch(jobs){
+  const nw = workers ? workers.length : 2, chunk = Math.max(1, Math.ceil(jobs.length/nw)), parts = [];
+  for(let k = 0; k < jobs.length; k += chunk) parts.push(runWorker({op: "corr", pairs: jobs.slice(k, k + chunk)}));
+  return (await Promise.all(parts)).flatMap(r => r.res);
+}
+const insideBox = (x, y, it) => { const t = it.rot*Math.PI/180, dx = x - it.cx, dy = y - it.cy, u = dx*Math.cos(t) + dy*Math.sin(t), v = -dx*Math.sin(t) + dy*Math.cos(t); return Math.abs(u) <= it.w/2 && Math.abs(v) <= it.h/2; };
+// match a moving image (b) against a fixed scene (a) over a region, trying several rotations of b
+async function matchRegion(fixedParts, mov, R, res, angles, lim, hpR){
+  const A = renderParts(fixedParts, R, res, false), MA = renderParts(fixedParts, R, res, true);
+  const a = prepMatch(A.out, MA.out, A.W, A.H, hpR);
+  const jobs = angles.map(ang => {
+    const part = {...mov, rot: ang};
+    const B = renderParts([part], R, res, false), MB = renderParts([part], R, res, true);
+    return {a, ma: MA.out, b: prepMatch(B.out, MB.out, B.W, B.H, hpR), mb: MB.out, w: A.W, h: A.H, limX: lim, limY: lim};
+  });
+  const out = await nccBatch(jobs);
+  let k = 0; out.forEach((r, i) => { if(r.score > out[k].score) k = i; });
+  return {dx: out[k].dx*res, dy: -out[k].dy*res, rot: angles[k], score: out[k].score};
+}
+function imageGroups(){
+  const g = new Map();
+  for(const L of state.layers){
+    if((L.type !== "exposure" && L.type !== "tilt") || !L.visible) continue;
+    for(const it of L.items){
+      const k = magKey(it.doc, it.sec), key = `${L.id}|${k}`;
+      if(!g.has(key)) g.set(key, {id: key, L, k, mag: num(get(it.doc, it.sec, "Magnification")), items: []});
+      g.get(key).items.push(it);
+    }
+  }
+  return [...g.values()].sort((a, b) => (a.mag || 0) - (b.mag || 0));
+}
+function openRefine(L){
+  endCalib();
+  const groups = imageGroups();
+  const mine = groups.filter(g => g.L === L).sort((a, b) => (b.mag || 0) - (a.mag || 0));
+  const acq = mine[0];
+  const view = groups.filter(g => g !== acq && (g.mag || 0) < (acq ? acq.mag || Infinity : Infinity)).pop() || groups.find(g => g !== acq) || null;
+  state.refine = {acqId: acq && acq.id, viewId: view && view.id, results: null, busy: false, note: ""};
+  renderRefPanel(); render();
+}
+function closeRefine(){ state.refine = null; $("#refPanel").hidden = true; render(); }
+function renderRefPanel(){
+  const r = state.refine, el = $("#refPanel");
+  if(!r){ el.hidden = true; return; }
+  el.hidden = false;
+  const groups = imageGroups(), opt = (id, none) => (none ? `<option value="">${none}</option>` : "") + groups.map(g => `<option value="${esc(g.id)}" ${g.id === id ? "selected" : ""}>${esc(g.L.name)} · ${esc(magLabel(g.k))}${g.mag ? ` (${g.mag}×)` : ""} · ${g.items.length}</option>`).join("");
+  const focus = state.focus && state.focus.L && state.focus.L.type === "square" ? state.focus : null;
+  let res = "";
+  if(r.results){
+    const row = (x, extra) => `<tr><td>${esc(x.name.length > 14 ? "…" + x.name.slice(-13) : x.name)}</td><td>${x.err ? "–" : x.score.toFixed(2)}</td><td>${x.err ? esc(x.err) : `${Math.hypot(x.dx, x.dy).toFixed(2)}`}</td><td>${x.err ? "" : x.rot.toFixed(1)}</td></tr>`;
+    res = `<table><tr><th>View</th><th>Score</th><th>Shift µm</th><th>Rot °</th></tr>${r.results.views.map(x => row(x)).join("")}</table>
+      <table><tr><th>Acquisition</th><th>Score</th><th>Shift µm</th><th>Rot °</th></tr>${r.results.recs.map(x => row(x)).join("")}</table>
+      <div class="res">${esc(r.results.summary)}</div>`;
+  }
+  el.innerHTML = `<h3>Refine positions by correlation</h3>
+    <div class="step">Step 1 matches each View image to the square map. Step 2 matches each acquisition image inside its corrected View image. ${focus ? `Square map: <b>${esc(focus.name)}</b>.` : `<b>Click into a square map first</b>; only images on it are refined.`}</div>
+    <label class="field" for="refView">View images<select id="refView">${opt(r.viewId, "None")}</select></label>
+    <label class="field" for="refAcq">Acquisition images<select id="refAcq">${opt(r.acqId)}</select></label>
+    <div class="row"><button class="btn small primary" id="refRun" ${r.busy || !focus ? "disabled" : ""}>${r.busy ? "Working…" : "Run"}</button>
+      ${r.results ? `<button class="btn small" id="refKeep">Keep refined positions</button><button class="btn small" id="refCal">Save as calibrations</button>` : ""}
+      <button class="btn small" id="refClose">Close</button></div>
+    <div class="res" id="refNote">${esc(r.note)}</div>${res}`;
+  $("#refView").addEventListener("change", e => { r.viewId = e.target.value || null; });
+  $("#refAcq").addEventListener("change", e => { r.acqId = e.target.value; });
+  $("#refRun").addEventListener("click", runRefine);
+  $("#refClose").addEventListener("click", closeRefine);
+  if(r.results){ $("#refKeep").addEventListener("click", keepRefined); $("#refCal").addEventListener("click", saveRefCalibrations); }
+}
+function refNote(t){ if(state.refine) state.refine.note = t; const el = $("#refNote"); if(el) el.textContent = t; }
+async function runRefine(){
+  const r = state.refine; if(!r || r.busy) return;
+  const focus = state.focus && state.focus.L && state.focus.L.type === "square" ? state.focus : null;
+  if(!focus) return refNote("Click into a square map first.");
+  const groups = imageGroups(), acqG = groups.find(g => g.id === r.acqId), viewG = groups.find(g => g.id === r.viewId);
+  if(!acqG) return refNote("Choose the acquisition images.");
+  if(!viewG) return refNote("Choose the View images: acquisition images are matched inside them.");
+  if(viewG === acqG) return refNote("View and acquisition must be different groups.");
+  const fb = bbox(focus.items), pad = 2;
+  const inSquare = it => it.cx > fb[0]-pad && it.cx < fb[1]+pad && it.cy > fb[2]-pad && it.cy < fb[3]+pad;
+  const views = viewG.items.filter(inSquare), recs = acqG.items.filter(inSquare);
+  if(!views.length) return refNote("No View images on this square map.");
+  // square-map pieces as they are drawn now (alignment and atlas offset included)
+  const mont = focus.L.montages.find(m => m.key === focus.key) || focus;
+  const secOf = z => imageSections(mont.doc).find(x => Number(x.index) === z);
+  const mmm = mont.tiles.map(t => ({doc: mont.doc, sec: secOf(Number(t.key.split("|")[1])), cx: t.cx, cy: t.cy, w: t.w, h: t.h, rot: t.rot, flip: t.flip})).filter(t => t.sec);
+  const base = mmm.length ? mmm[0].rot : 0, flip = mmm.length ? mmm[0].flip : 1;
+  r.busy = true; r.results = null; renderRefPanel();
+  const out = {views: [], recs: [], summary: ""};
+  try {
+    // step 1: each View image against the square map
+    for(let i = 0; i < views.length; i++){
+      const v = views[i], name = baseName(v.doc.name);
+      refNote(`Step 1: View ${i+1} of ${views.length}…`);
+      try {
+        const hw = Math.hypot(v.w, v.h)/2, m = Math.min(4, Math.max(1, 0.35*Math.max(v.w, v.h)));
+        const R = [v.cx-hw-m, v.cx+hw+m, v.cy-hw-m, v.cy+hw+m];
+        const parts = mmm.filter(t => Math.abs(t.cx - v.cx) < Math.hypot(t.w, t.h)/2 + hw + m && Math.abs(t.cy - v.cy) < Math.hypot(t.w, t.h)/2 + hw + m);
+        if(!parts.length) throw new Error("not on the square map");
+        const res = Math.max(Math.min(...parts.map(t => nativeUm(t.doc, t.sec))), nativeUm(v.doc, v.sec), (R[1]-R[0])/400);
+        for(const t of parts) t.canvas = (await imageAt(t.doc, t.sec, res)).canvas;
+        const mov = {canvas: (await imageAt(v.doc, v.sec, res)).canvas, cx: v.cx, cy: v.cy, w: v.w, h: v.h, flip};
+        const hpR = Math.max(2, Math.round(2*hw/res/25)), lim = Math.round(m/res);
+        const coarse = [-6, -4.5, -3, -1.5, 0, 1.5, 3, 4.5, 6].map(d => base + d);
+        let best = await matchRegion(parts, mov, R, res, coarse, lim, hpR);
+        best = await matchRegion(parts, mov, R, res, [best.rot - 0.75, best.rot, best.rot + 0.75], lim, hpR);
+        out.views.push({it: v, name, ...best, flip, cx: v.cx + best.dx, cy: v.cy + best.dy});
+      } catch(e){ out.views.push({it: v, name, err: e.message}); }
+    }
+    // step 2: each acquisition image inside the corrected View image that covers it
+    const goodViews = out.views.filter(x => !x.err && x.score > 0.2);
+    for(let i = 0; i < recs.length; i++){
+      const a = recs[i], name = baseName(a.doc.name);
+      refNote(`Step 2: acquisition ${i+1} of ${recs.length}…`);
+      try {
+        // its View: the one taken at the same stage position, else the corrected View that covers it
+        const ast = stagePos(a.doc, a.sec), cands = goodViews.map(x => ({x, box: {cx: x.cx, cy: x.cy, w: x.it.w, h: x.it.h, rot: x.rot}, st: stagePos(x.it.doc, x.it.sec)}));
+        const same = ast ? cands.filter(o => o.st && Math.hypot(o.st[0] - ast[0], o.st[1] - ast[1]) < 0.05) : [];
+        const V = (same.length ? same : cands.filter(o => insideBox(a.cx + o.x.dx, a.cy + o.x.dy, o.box)))
+          .sort((p, q) => Math.hypot(p.box.cx - a.cx, p.box.cy - a.cy) - Math.hypot(q.box.cx - a.cx, q.box.cy - a.cy))[0];
+        if(!V) throw new Error("no matched View covers it");
+        // it shares its stage position (and stage error) with the View, so start from the View's correction
+        const sx = a.cx + V.x.dx, sy = a.cy + V.x.dy, hw = Math.hypot(a.w, a.h)/2;
+        const vpart = (res) => imageAt(V.x.it.doc, V.x.it.sec, res).then(e => ({canvas: e.canvas, ...V.box, flip}));
+        const movAt = (res, cx, cy) => imageAt(a.doc, a.sec, res).then(e => ({canvas: e.canvas, cx, cy, w: a.w, h: a.h, flip}));
+        // coarse pass: wide search at lower resolution
+        const m1 = Math.min(2, Math.max(0.5, 1.5*Math.max(a.w, a.h)));
+        const R1 = [sx-hw-m1, sx+hw+m1, sy-hw-m1, sy+hw+m1];
+        const r1 = Math.max(nativeUm(V.x.it.doc, V.x.it.sec), nativeUm(a.doc, a.sec), (R1[1]-R1[0])/400);
+        const c1 = await matchRegion([await vpart(r1)], await movAt(r1, sx, sy), R1, r1, [V.x.rot], Math.round(m1/r1), Math.max(2, Math.round(2*hw/r1/25)));
+        // fine pass: small search at full resolution around the coarse result
+        const fx = sx + c1.dx, fy = sy + c1.dy, m2 = Math.max(0.05, Math.min(0.3, 4*r1 + 0.1*Math.max(a.w, a.h)));
+        const R2 = [fx-hw-m2, fx+hw+m2, fy-hw-m2, fy+hw+m2];
+        const r2 = Math.max(nativeUm(V.x.it.doc, V.x.it.sec), nativeUm(a.doc, a.sec), (R2[1]-R2[0])/400);
+        const c2 = await matchRegion([await vpart(r2)], await movAt(r2, fx, fy), R2, r2, [-0.5, 0, 0.5].map(d => c1.rot + d), Math.round(m2/r2), Math.max(2, Math.round(2*hw/r2/25)));
+        const best = {dx: V.x.dx + c1.dx + c2.dx, dy: V.x.dy + c1.dy + c2.dy, rot: c2.rot, score: Math.min(c1.score, c2.score) > 0 ? c2.score : Math.min(c1.score, c2.score)};
+        out.recs.push({it: a, name, ...best, flip, view: V.x, cx: a.cx + best.dx, cy: a.cy + best.dy});
+      } catch(e){ out.recs.push({it: a, name, err: e.message}); }
+    }
+    const ok = x => !x.err && x.score > 0.2;
+    out.summary = `${out.views.filter(ok).length}/${out.views.length} View and ${out.recs.filter(ok).length}/${out.recs.length} acquisition images matched (score above 0.2). Arrows on the map show each move.`;
+    r.results = out; refNote("");
+  } catch(e){ refNote(`Refinement failed: ${e.message}`); }
+  finally { r.busy = false; renderRefPanel(); render(); }
+}
+function keepRefined(){
+  const r = state.refine; if(!r || !r.results) return;
+  const off = state.settings.offset, date = new Date().toLocaleString();
+  let n = 0;
+  for(const x of [...r.results.views, ...r.results.recs]){
+    if(x.err || x.score <= 0.2) continue;
+    const L = x.it.L, ox = L.offsetApplied ? off.x : 0, oy = L.offsetApplied ? off.y : 0;
+    REFINED[refKey(x.it)] = {x: x.cx - ox, y: x.cy - oy, rot: x.rot, flip: x.flip, score: x.score, date};
+    n++;
+  }
+  saveRefined(); state.settings.useRefined = true; $("#useRefined").checked = true;
+  rebuildKeepFocus();
+  r.results = null; refNote(`Kept ${n} refined positions.`); renderRefPanel();
+}
+// calibrations: View mag from View-vs-square-map; acquisition mag relative to its View (the stage error they share cancels)
+function saveRefCalibrations(){
+  const r = state.refine; if(!r || !r.results) return;
+  const off = state.settings.offset, ok = x => !x.err && x.score > 0.2;
+  const pred = it => { const st = stagePos(it.doc, it.sec), is = isUmRaw(it.sec, it.doc); return [st[0] + is[0], st[1] + is[1]]; };
+  const unoff = (x, L) => [x.cx - (L.offsetApplied ? off.x : 0), x.cy - (L.offsetApplied ? off.y : 0)];
+  const msgs = [];
+  // View mag: usually all at image shift 0, so a fixed offset is fitted on top of the current conversion
+  const vs = r.results.views.filter(ok);
+  let cv = [0, 0], vfit = null;
+  if(vs.length){
+    const vk = magKey(vs[0].it.doc, vs[0].it.sec);
+    const pairs = vs.map(x => ({st: stagePos(x.it.doc, x.it.sec), IS: (nums(x.it.sec.kv.ImageShift).length >= 2 ? nums(x.it.sec.kv.ImageShift).slice(0, 2) : [0, 0]), target: unoff(x, x.it.L)}));
+    let f = solveIS(pairs);
+    if(!f || f.error){
+      const d = vs.map((x, i) => { const p = pred(x.it), t = pairs[i].target; return [t[0] - p[0], t[1] - p[1]]; });
+      cv = [d.reduce((a, v) => a + v[0], 0)/d.length, d.reduce((a, v) => a + v[1], 0)/d.length];
+      const M = currentISMatrix(vs[0].it.doc, vs[0].it.sec);
+      f = {m: M.m, c: cv.slice(), n: d.length, rms: Math.sqrt(d.reduce((a, v) => a + (v[0]-cv[0])**2 + (v[1]-cv[1])**2, 0)/d.length)};
+      const det = f.m[0]*f.m[3] - f.m[1]*f.m[2]; Object.assign(f, {scale: Math.sqrt(Math.abs(det)), rot: Math.atan2(f.m[2], f.m[0])*180/Math.PI, mirrored: det < 0});
+      msgs.push(`View ${magLabel(vk)}: offset ${cv[0].toFixed(2)}, ${cv[1].toFixed(2)} µm from ${d.length} images (spread ${f.rms.toFixed(2)} µm).`);
+    } else msgs.push(`View ${magLabel(vk)}: full fit from ${f.n} images.`);
+    USERCAL[vk] = {m: f.m, c: f.c, n: f.n, rms: f.rms, scale: f.scale, rot: f.rot, mirrored: f.mirrored, mag: num(get(vs[0].it.doc, vs[0].it.sec, "Magnification")) || null, date: new Date().toLocaleString(), from: "correlation"};
+    vfit = f;
+  }
+  // where a View image will be predicted with its new calibration
+  const viewPredNew = it => { const st = stagePos(it.doc, it.sec), a = nums(it.sec.kv.ImageShift), is = a.length >= 2 ? a : [0, 0];
+    if(!vfit) return pred(it); return [st[0] + vfit.m[0]*is[0] + vfit.m[1]*is[1] + vfit.c[0], st[1] + vfit.m[2]*is[0] + vfit.m[3]*is[1] + vfit.c[1]]; };
+  // acquisition mag: target = where it sits relative to its View, carried onto the View's predicted position (+ new View offset)
+  const as = r.results.recs.filter(x => ok(x) && x.view);
+  if(as.length){
+    const ak = magKey(as[0].it.doc, as[0].it.sec);
+    const pairs = as.map(x => {
+      const vt = unoff(x.view, x.view.it.L), vp = viewPredNew(x.view.it), at = unoff(x, x.it.L);
+      return {st: stagePos(x.it.doc, x.it.sec), IS: (nums(x.it.sec.kv.ImageShift).length >= 2 ? nums(x.it.sec.kv.ImageShift).slice(0, 2) : [0, 0]),
+        target: [at[0] - vt[0] + vp[0], at[1] - vt[1] + vp[1]]};
+    });
+    const f = solveIS(pairs);
+    if(f && !f.error){
+      USERCAL[ak] = {m: f.m, c: f.c, n: f.n, rms: f.rms, scale: f.scale, rot: f.rot, mirrored: f.mirrored, mag: num(get(as[0].it.doc, as[0].it.sec, "Magnification")) || null, date: new Date().toLocaleString(), from: "correlation"};
+      msgs.push(`Acquisition ${magLabel(ak)}: ${f.scale.toFixed(3)} µm per unit, ${f.rot.toFixed(1)}°${f.mirrored ? ", mirrored" : ""}, from ${f.n} images${f.n > 3 ? `, error ${f.rms.toFixed(2)} µm` : ""}.`);
+    } else msgs.push(`Acquisition: not saved. ${f ? f.error : "Needs at least 3 matched images."}`);
+  }
+  saveUserCal(); rebuildKeepFocus();
+  refNote(msgs.join(" ")); renderRefPanel();
+}
+// the conversion isUm would use, ignoring the user's calibration (for offset-only fits)
+function currentISMatrix(doc, sec){
+  const T = calMatrixFor(doc, sec);
+  if(T) return {m: T.m};
+  const {isScale, isRot, isMirror} = state.settings, t = isRot*Math.PI/180, my = isMirror ? -1 : 1;
+  return {m: [isScale*Math.cos(t), -isScale*Math.sin(t)*my, isScale*Math.sin(t), isScale*Math.cos(t)*my]};
+}
+function isUmRaw(sec, doc){ return isUm(sec, doc, false); }
+function drawRefine(){
+  const r = state.refine; if(!r || !r.results) return;
+  ctx.lineWidth = 1.5;
+  for(const x of [...r.results.views, ...r.results.recs]){
+    if(x.err) continue;
+    const a = toScreen(x.it.cx, x.it.cy), b = toScreen(x.cx, x.cy), good = x.score > 0.2;
+    ctx.strokeStyle = good ? theme.accent : "#c0392b"; ctx.setLineDash(good ? [] : [3, 3]);
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(b[0], b[1], 3, 0, Math.PI*2); ctx.stroke();
+  }
+}
+
+/* ---------- atlas offset ---------- */
+const OFF_KEY = "mdocStageMap.atlasOffset";
+function loadOffset(){
+  try { const o = JSON.parse(localStorage.getItem(OFF_KEY) || "null"); if(o && isFinite(o.x) && isFinite(o.y)) Object.assign(state.settings.offset, o); } catch(e){}
+  showOffset();
+  if(state.settings.offset.x || state.settings.offset.y) rebuildKeepFocus();
+}
+function saveOffset(){ try { localStorage.setItem(OFF_KEY, JSON.stringify(state.settings.offset)); } catch(e){} }
+function showOffset(msg){
+  const o = state.settings.offset;
+  $("#offX").value = +o.x.toFixed(2); $("#offY").value = +o.y.toFixed(2); $("#offOn").checked = o.on;
+  if(msg) $("#offStatus").textContent = msg;
+  else if(o.note) $("#offStatus").textContent = o.note;
+}
+function setOffset(x, y, note){
+  const o = state.settings.offset; o.x = x; o.y = y; if(note != null) o.note = note;
+  saveOffset(); showOffset(); rebuildKeepFocus();
+}
+// render tiles (or their coverage mask) onto a canvas in world µm: x right, y up
+function renderRegion(tiles, R, res, mask){
+  const W = Math.ceil((R[1]-R[0])/res), H = Math.ceil((R[3]-R[2])/res);
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d"); g.fillStyle = "#000"; g.fillRect(0, 0, W, H); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+  for(const t of tiles){
+    const ent = imgCache.get(t.key); if(!ent) continue;
+    g.save(); g.translate((t.cx - R[0])/res, (R[3] - t.cy)/res); g.rotate(-t.rot*Math.PI/180); g.scale(1, t.flip);
+    const w = t.w/res, h = t.h/res;
+    if(mask){ g.fillStyle = "#fff"; g.fillRect(-w/2, -h/2, w, h); } else g.drawImage(ent.tile, -w/2, -h/2, w, h);
+    g.restore();
+  }
+  const d = g.getImageData(0, 0, W, H).data, out = new Float32Array(W*H);
+  for(let i = 0; i < W*H; i++) out[i] = mask ? (d[i*4] > 250 ? 1 : 0) : d[i*4];
+  return {out, W, H};
+}
+async function alignOffset(){
+  const say = t => { $("#offStatus").textContent = t; setMsg(t); };
+  const focus = state.focus;
+  if(!focus || !focus.L || focus.L.type !== "square") return say("Click into a square map first, then press Align.");
+  const atlasL = state.layers.find(L => L.type === "atlas" && L.visible);
+  if(!atlasL) return say("Open the atlas first: the offset is measured against it.");
+  if(!canLoad(atlasL) || !canLoad(focus.L)) return say("Align needs the images: select the .mrc files with the atlas and square map mdocs.");
+  $("#offAlign").disabled = true;
+  try {
+    say("Loading images…");
+    for(const L of [atlasL, focus.L]) if(!L.loadImages){ L.loadImages = true; }
+    renderLayers();
+    await Promise.all([...atlasL.montages.map(m => ensureMontage(atlasL, m)), ensureMontage(focus.L, focus)]);
+    const mont = focus.L.montages.find(m => m.key === focus.key) || focus;
+    const tiles = mont.tiles.filter(t => imgCache.has(t.key));
+    const atiles = atlasL.montages.flatMap(m => m.tiles).filter(t => imgCache.has(t.key));
+    if(!tiles.length || !atiles.length) return say("Images did not load, so the offset could not be measured.");
+    // region: the montage plus a margin as wide as the montage, so offsets up to about half its size can be found
+    const mb = bbox(tiles), span = Math.max(mb[1]-mb[0], mb[3]-mb[2]), margin = span*0.6;
+    const R = [mb[0]-margin, mb[1]+margin, mb[2]-margin, mb[3]+margin];
+    const at = atiles[0], atRes = at.w/imgCache.get(at.key).tile.width;   // µm per atlas display pixel
+    const res = Math.max(atRes, (R[1]-R[0])/900);
+    say(`Matching the square map to the atlas at ${res.toFixed(2)} µm per pixel…`);
+    const A = renderRegion(atiles, R, res, false), MA = renderRegion(atiles, R, res, true);
+    const B = renderRegion(tiles, R, res, false), MB = renderRegion(tiles, R, res, true);
+    const prep = (img, m) => {     // fill outside the mask with the mean, then high-pass
+      let s = 0, n = 0; for(let i = 0; i < img.length; i++) if(m[i]){ s += img[i]; n++; }
+      const mean = n ? s/n : 0, f = img.slice(); for(let i = 0; i < f.length; i++) if(!m[i]) f[i] = mean;
+      return highPass(f, A.W, A.H, Math.max(3, Math.round(span/res/12)));
+    };
+    const a = prep(A.out, MA.out), b = prep(B.out, MB.out);
+    const lim = Math.round(margin/res*0.9);
+    const {res: [r]} = await runWorker({op: "corr", pairs: [{a, ma: MA.out, b, mb: MB.out, w: A.W, h: A.H, limX: lim, limY: lim}]});
+    const dx = r.dx*res, dy = -r.dy*res;     // move the square map by this to match the atlas
+    const o = state.settings.offset, nx = o.x + dx, ny = o.y + dy;
+    const conf = r.score > 0.3 ? "" : " Low match score: check by eye, and press Align again or type the offset.";
+    setOffset(nx, ny, `Offset ${nx.toFixed(2)}, ${ny.toFixed(2)} µm from aligning ${mont.name} to the atlas (change ${dx.toFixed(2)}, ${dy.toFixed(2)} µm, score ${r.score.toFixed(2)}, ${new Date().toLocaleString()}).${conf}`);
+    say(state.settings.offset.note);
+  } catch(e){ say(`Align failed: ${e.message}`); }
+  finally { $("#offAlign").disabled = false; }
+}
+
+/* ---------- layer list ---------- */
+function renderLayers(){
+  const box = $("#layers");
+  if(!state.layers.length){ box.innerHTML = `<div class="empty">No mdoc files loaded. Use the buttons above or drop files on the map.</div>`; return; }
+  const sorted = [...state.layers].sort((a,b) => TYPES[a.type].rank - TYPES[b.type].rank || a.id - b.id);
+  box.innerHTML = sorted.map(L => {
+    const isMont = L.type === "atlas" || L.type === "square";
+    const nCount = L.type === "square" ? L.montages.length : L.items.length;
+    const unit = L.type === "square" ? (nCount === 1 ? "montage" : "montages") : L.type === "atlas" ? "pieces" : L.type === "tilt" ? "series" : "images";
+    const sizeLine = sizeSummary(L);
+    const rotPh = `auto (${(L.autoRot||0).toFixed(1)}°)`;
+    const warn = [...L.warn].map(w => `<div class="lwarn">${esc(w)}</div>`).join("");
+    const mdocBtn = !isNaN(L.mdocRot) ? `<button class="btn small full" data-act="mdocrot">Use mdoc RotationAngle (${L.mdocRot.toFixed(1)}°)</button>` : "";
+    return `<div class="layer" data-id="${L.id}">
+      <div class="layer-head">
+        <input type="checkbox" data-act="vis" ${L.visible?"checked":""} aria-label="Show ${esc(L.name)}">
+        <input type="color" data-act="color" value="${L.color}" aria-label="Color for ${esc(L.name)}">
+        <button class="lname" data-act="zoom" title="Zoom to ${esc(L.name)}">${esc(L.name)}</button>
+        <span class="count">${nCount} ${unit}</span>
+        <button class="x" data-act="remove" aria-label="Remove ${esc(L.name)}">×</button>
+      </div>
+      <div class="layer-ctl">
+        <label for="t${L.id}">Type<select id="t${L.id}" data-act="type">${Object.entries(TYPES).map(([k,v]) => `<option value="${k}" ${k===L.type?"selected":""}>${v.label}</option>`).join("")}</select></label>
+        <label for="r${L.id}">Box rotation (°)<input id="r${L.id}" type="number" step="0.5" data-act="rot" placeholder="${rotPh}" value="${L.rot==null?"":L.rot}"></label>
+
+        ${L.type === "square" ? `<label class="lcheck full" for="sp${L.id}"><input type="checkbox" id="sp${L.id}" data-act="pieces" ${L.showPieces?"checked":""}> Show individual pieces</label>` : ""}
+        ${imgControls(L)}
+        ${calLine(L)}
+        ${sizeLine}
+        ${mdocBtn}
+        ${warn}
+      </div></div>`;
+  }).join("");
+}
+$("#layers").addEventListener("input", e => {
+  const el = e.target, L = layerOf(el); if(!L) return;
+  const act = el.dataset.act;
+  if(act === "color"){ L.color = el.value; render(); }
+  else if(act === "rot"){ L.rot = el.value === "" ? null : Number(el.value); buildLayer(L); reselect(); render(); }
+});
+$("#layers").addEventListener("change", e => {
+  const el = e.target, L = layerOf(el); if(!L) return;
+  const act = el.dataset.act;
+  if(act === "vis"){ L.visible = el.checked; render(); }
+  else if(act === "type"){ L.type = el.value; L.rot = null; L.color = TYPES[L.type].color; setFocus(null); buildLayer(L); reselect(); renderLayers(); render(); }
+  else if(act === "img"){ L.loadImages = el.checked; if(L.loadImages) startImages(L); renderLayers(); render(); }
+  else if(act === "align"){ L.alignMode = el.value; buildLayer(L); reselect(); renderLayers(); render(); }
+  else if(act === "pieces"){ L.showPieces = el.checked; setFocus(null); buildLayer(L); reselect(); renderLayers(); render(); }
+  else if(act === "rot"){ renderLayers(); }
+});
+$("#layers").addEventListener("click", e => {
+  const el = e.target.closest("[data-act]"), L = el && layerOf(el); if(!L) return;
+  const act = el.dataset.act;
+  if(act === "remove"){ if(state.calib && state.calib.L === L) endCalib(); if(state.focus && L.montages.includes(state.focus)) setFocus(null); state.layers = state.layers.filter(x => x !== L); if(state.selected && state.selected.L === L){ state.selected = null; showInspector(); } renderLayers(); renderDataList(); render(); }
+  else if(act === "zoom"){ setFocus(null); animateTo(viewFor(L.items)); }
+  else if(act === "imgall"){ loadAllMontages(L); }
+  else if(act === "calib"){ startCalib(L); }
+  else if(act === "refine"){ openRefine(L); }
+  else if(act === "calclear"){ const k = magKey(L.items[0].doc, L.items[0].sec); delete USERCAL[k]; saveUserCal(); rebuildKeepFocus(); setMsg(`Forgot your image-shift calibration at ${magLabel(k)}.`); }
+  else if(act === "mdocrot"){ L.rot = Math.round(L.mdocRot*10)/10; buildLayer(L); reselect(); renderLayers(); render(); }
+});
+function sizeSummary(L){
+  // group identical layouts: same piece count, piece size, pixel size and magnification
+  const groups = new Map();
+  for(const it of L.items){
+    const e = it.extra, k = `${e.pieces||0}|${(e.pieceSize||e.sz||[]).join("x")}|${(e.pxA||0).toPrecision(3)}|${e.mag}`;
+    if(!groups.has(k)) groups.set(k, {it, ws: [], hs: []});
+    const g = groups.get(k); g.ws.push(it.w); g.hs.push(it.h);
+  }
+  if(!groups.size) return "";
+  const lines = [...groups.values()].slice(0, 3).map(({it, ws, hs}) => {
+    const e = it.extra, n = ws.length, cnt = n > 1 ? `${n}× ` : "";
+    const sz = e.pieces ? `${cnt}${e.pieces} pieces of ${e.pieceSize ? e.pieceSize.join("×") : "?"} px` : `${cnt}${e.sz ? e.sz.join("×") + " px" : "size ?"}`;
+    const px = e.pxA > 0 ? `${+e.pxA.toPrecision(3)} Å/px` : "Å/px ?";
+    const mag = e.mag > 0 ? ` @ ${e.mag}×` : "";
+    return `${sz} · ${px}${mag} → ${fmtLen(median(ws))} × ${fmtLen(median(hs))}`;
+  });
+  if(groups.size > 3) lines.push(`+${groups.size-3} more layouts`);
+  return `<div class="lsize">${lines.map(esc).join("<br>")}</div>`;
+}
+function layerOf(el){ const row = el.closest(".layer"); return row && state.layers.find(L => L.id === Number(row.dataset.id)); }
+
+/* ---------- canvas ---------- */
+const cv = $("#cv"), ctx = cv.getContext("2d");
+let W = 0, H = 0, DPR = 1, theme = {};
+function readTheme(){
+  const cs = getComputedStyle(document.documentElement), g = k => cs.getPropertyValue(k).trim();
+  theme = {dark: g("color-scheme") === "dark", bg:g("--canvas"), grid:g("--gridline"), ring:g("--gridring"), ink:g("--ink"), muted:g("--muted"), accent:g("--accent"), panel:g("--panel")};
+}
+function resize(){
+  const r = cv.getBoundingClientRect();
+  DPR = window.devicePixelRatio || 1; W = r.width; H = r.height;
+  cv.width = Math.round(W*DPR); cv.height = Math.round(H*DPR);
+  render();
+}
+const ys = () => state.settings.flipY ? 1 : -1;
+const vrot = () => state.settings.viewRot*Math.PI/180;
+// world µm -> screen px: scale, flip Y to screen-down, then rotate CCW on screen by the view rotation
+function toScreen(x, y){
+  const v = state.view, f = vrot(), c = Math.cos(f), sn = Math.sin(f);
+  const dx = (x - v.x)*v.s, dy = ys()*(y - v.y)*v.s;
+  return [W/2 + dx*c + dy*sn, H/2 - dx*sn + dy*c];
+}
+function screenDeltaToWorld(X, Y){
+  const v = state.view, f = vrot(), c = Math.cos(f), sn = Math.sin(f);
+  return [(X*c - Y*sn)/v.s, (X*sn + Y*c)/(ys()*v.s)];
+}
+function toWorld(sx, sy){ const d = screenDeltaToWorld(sx - W/2, sy - H/2); return [state.view.x + d[0], state.view.y + d[1]]; }
+function canvasAngle(rotDeg){ return ys()*rotDeg*Math.PI/180 - vrot(); }
+function keepUnder(w, p){ const q = toScreen(w[0], w[1]); const d = screenDeltaToWorld(q[0]-p[0], q[1]-p[1]); state.view.x += d[0]; state.view.y += d[1]; }
+function nice(v){ const p = Math.pow(10, Math.floor(Math.log10(v))), n = v/p; return (n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10)*p; }
+function fmtLen(um){ return um >= 1000 ? `${+(um/1000).toPrecision(3)} mm` : um >= 1 ? `${+um.toPrecision(3)} µm` : `${+(um*1000).toPrecision(3)} nm`; }
+function shade(hex, f){ const h = hex.replace("#",""); const n = parseInt(h, 16); const c = [n>>16&255, n>>8&255, n&255].map(v => Math.round(f < 0 ? v*(1+f) : v + (255-v)*f)); return `rgb(${c.join(",")})`; }
+function rgba(hex, a){ const h = hex.replace("#",""); const n = parseInt(h.length===3 ? h.split("").map(c=>c+c).join("") : h, 16); return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`; }
+const STYLE = {atlas:{fill:.10, stroke:.9, lw:1}, square:{fill:.16, stroke:1, lw:1.2}, exposure:{fill:.45, stroke:1, lw:1}, tilt:{fill:.5, stroke:1, lw:1.4}};
+
+function drawOrder(){ return [...state.layers].filter(L => L.visible).sort((a,b) => TYPES[a.type].rank - TYPES[b.type].rank || a.id - b.id); }
+
+function render(){
+  if(!W) return;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.fillStyle = theme.bg; ctx.fillRect(0,0,W,H);
+  const s = state.view.s;
+  // grid lines
+  const step = nice(90/s);
+  const cs = [toWorld(0,0), toWorld(W,0), toWorld(0,H), toWorld(W,H)];
+  const xmin = Math.min(...cs.map(c=>c[0])), xmax = Math.max(...cs.map(c=>c[0])), ymin = Math.min(...cs.map(c=>c[1])), ymax = Math.max(...cs.map(c=>c[1]));
+  ctx.strokeStyle = theme.grid; ctx.lineWidth = 1; ctx.beginPath();
+  if((xmax-xmin)/step < 400 && (ymax-ymin)/step < 400){
+    for(let x = Math.ceil(xmin/step)*step; x <= xmax; x += step){ const a = toScreen(x, ymin), b = toScreen(x, ymax); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
+    for(let y = Math.ceil(ymin/step)*step; y <= ymax; y += step){ const a = toScreen(xmin, y), b = toScreen(xmax, y); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
+  }
+  ctx.stroke();
+  // grid outline + origin
+  const [ox, oy] = toScreen(0, 0);
+  if(state.settings.showGrid){
+    ctx.strokeStyle = theme.ring; ctx.setLineDash([6,5]); ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(ox, oy, state.settings.gridDiam*500*s, 0, Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.strokeStyle = theme.muted; ctx.lineWidth = 1; ctx.beginPath();
+  ctx.moveTo(ox-8, oy); ctx.lineTo(ox+8, oy); ctx.moveTo(ox, oy-8); ctx.lineTo(ox, oy+8); ctx.stroke();
+
+  // layers
+  const labels = [];
+  for(const L of drawOrder()){
+    const st = STYLE[L.type];
+    const montImg = new Set();
+    if(L.loadImages){
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+      if(L.type === "atlas" || L.type === "square"){
+        for(const m of L.montages){ let any = false; for(const t of m.tiles){ const c = imgCache.get(t.key); if(c){ drawTile(c, t, s); any = true; } } if(any) montImg.add(m.key); }
+      } else {
+        for(const it of L.items){ const c = imgCache.get(it.imgKey); if(c) drawTile(c, {cx: it.cx, cy: it.cy, w: it.w, h: it.h, rot: it.rot, flip: it.flip || 1}, s); }
+      }
+    }
+    ctx.fillStyle = rgba(L.color, st.fill); ctx.lineWidth = st.lw;
+    ctx.strokeStyle = (L.type === "exposure" || L.type === "tilt") ? shade(L.color, theme.dark ? 0 : -0.35) : rgba(L.color, st.stroke);
+    for(const it of L.items){
+      const [sx, sy] = toScreen(it.cx, it.cy), w = it.w*s, h = it.h*s, r = Math.max(w,h)*0.75;
+      if(sx + r < 0 || sx - r > W || sy + r < 0 || sy - r > H) continue;
+      if(Math.max(w,h) < 3){ ctx.fillStyle = rgba(L.color, 1); ctx.fillRect(sx-1.5, sy-1.5, 3, 3); ctx.fillStyle = rgba(L.color, st.fill); continue; }
+      ctx.save(); ctx.translate(sx, sy); ctx.rotate(canvasAngle(it.rot));
+      const hasImg = L.loadImages && (it.montage ? montImg.has(it.montage.key) : imgCache.has(it.imgKey));
+      if(!hasImg) ctx.fillRect(-w/2, -h/2, w, h);
+      ctx.strokeRect(-w/2, -h/2, w, h);
+      ctx.restore();
+      if(state.settings.showLabels) labels.push({it, sx, sy, w, h, L});
+    }
+  }
+  // labels
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for(const {it, sx, sy, w, h, L} of labels){
+    const m = Math.min(w, h);
+    if(L.type === "atlas" || L.type === "square"){
+      if(m < 22 || !state.settings.showPieceNums) continue;
+      const fs = Math.max(10, Math.min(18, m/5));
+      ctx.font = `500 ${fs}px ${getFont("--font-mono")}`;
+      ctx.fillStyle = L.type === "atlas" ? theme.muted : theme.ink;
+      ctx.fillText(it.short, sx, sy);
+    } else if(L.type === "tilt"){
+      if(m < 6 && state.view.s < 3) continue;
+      ctx.font = `500 11px ${getFont("--font-body")}`; ctx.textAlign = "left";
+      ctx.fillStyle = theme.ink; ctx.fillText(it.short, sx + Math.max(w,h)/2 + 6, sy);
+      ctx.textAlign = "center";
+    } else {
+      if(m < 46) continue;
+      ctx.font = `11px ${getFont("--font-mono")}`; ctx.fillStyle = theme.ink;
+      const t = it.short.length > 18 ? "…" + it.short.slice(-17) : it.short;
+      if(ctx.measureText(t).width < w*0.95) ctx.fillText(t, sx, sy);
+    }
+  }
+  // montage names
+  if(state.settings.showLabels){
+    ctx.font = `600 12px ${getFont("--font-body")}`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    for(const L of drawOrder()){
+      if(L.type !== "square") continue;
+      for(const m of L.montages){
+        const b = screenBox(m.items); if(!b) continue;
+        if(b[1]-b[0] < 50) continue;
+        ctx.fillStyle = theme.ink; ctx.fillText(m.name, (b[0]+b[1])/2, b[2] - 4);
+      }
+    }
+  }
+  if(state.calib) drawCalib();
+  if(state.refine) drawRefine();
+  // highlights
+  for(const [it, col, lw] of [[state.hover, theme.ink, 1.5], [state.selected, theme.accent, 2.5]]){
+    if(!it || !it.L.visible) continue;
+    const [sx, sy] = toScreen(it.cx, it.cy), w = Math.max(it.w*s, 8), h = Math.max(it.h*s, 8);
+    ctx.save(); ctx.translate(sx, sy); ctx.rotate(canvasAngle(it.rot));
+    ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.strokeRect(-w/2-2, -h/2-2, w+4, h+4); ctx.restore();
+  }
+  // scale bar
+  const len = nice(120/s), px = len*s, bx = 14, by = H - 34;
+  ctx.fillStyle = theme.ink; ctx.fillRect(bx, by, px, 3);
+  ctx.fillRect(bx, by-4, 1.5, 11); ctx.fillRect(bx+px-1.5, by-4, 1.5, 11);
+  ctx.font = `500 11px ${getFont("--font-mono")}`; ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+  ctx.fillText(fmtLen(len), bx, by-5);
+  // stage axis gizmo
+  {
+    const gx = W - 52, gy = H - 84, o = toScreen(state.view.x, state.view.y);
+    ctx.lineWidth = 1.5; ctx.font = `600 11px ${getFont("--font-mono")}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    for(const [lab, wx, wy] of [["X", 1, 0], ["Y", 0, 1]]){
+      const q = toScreen(state.view.x + wx, state.view.y + wy), L = Math.hypot(q[0]-o[0], q[1]-o[1]);
+      const ux = (q[0]-o[0])/L, uy = (q[1]-o[1])/L, ex = gx + ux*26, ey = gy + uy*26;
+      ctx.strokeStyle = theme.muted; ctx.fillStyle = theme.muted;
+      ctx.beginPath(); ctx.moveTo(gx, gy); ctx.lineTo(ex, ey);
+      ctx.moveTo(ex, ey); ctx.lineTo(ex - ux*6 - uy*4, ey - uy*6 + ux*4);
+      ctx.moveTo(ex, ey); ctx.lineTo(ex - ux*6 + uy*4, ey - uy*6 - ux*4); ctx.stroke();
+      ctx.fillText("+" + lab, gx + ux*38, gy + uy*38);
+    }
+  }
+  $("#zoom").textContent = `${(s).toPrecision(3)} px/µm`;
+}
+function drawTile(c, t, s){
+  const [sx, sy] = toScreen(t.cx, t.cy), w = t.w*s, h = t.h*s, r = Math.max(w, h)*0.75;
+  if(sx + r < 0 || sx - r > W || sy + r < 0 || sy - r > H || Math.max(w, h) < 2) return;
+  ctx.save(); ctx.translate(sx, sy); ctx.rotate(canvasAngle(t.rot)); ctx.scale(1, -ys()*t.flip);
+  ctx.drawImage(c.tile, -w/2, -h/2, w, h);
+  ctx.restore();
+}
+const fontCache = {};
+function getFont(k){ return fontCache[k] || (fontCache[k] = getComputedStyle(document.documentElement).getPropertyValue(k).trim()); }
+
+function bbox(items){
+  if(!items || !items.length) return null;
+  let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity;
+  for(const it of items){
+    const t = it.rot*Math.PI/180, hx = (Math.abs(Math.cos(t))*it.w + Math.abs(Math.sin(t))*it.h)/2, hy = (Math.abs(Math.sin(t))*it.w + Math.abs(Math.cos(t))*it.h)/2;
+    a = Math.min(a, it.cx-hx); b = Math.max(b, it.cx+hx); c = Math.min(c, it.cy-hy); d = Math.max(d, it.cy+hy);
+  }
+  return [a, b, c, d];
+}
+function screenBox(items){
+  if(!items || !items.length) return null;
+  let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity;
+  for(const it of items){
+    const t = it.rot*Math.PI/180, co = Math.cos(t), si = Math.sin(t);
+    for(const [u, v] of [[-1,-1],[1,-1],[1,1],[-1,1]]){
+      const x = it.cx + co*u*it.w/2 - si*v*it.h/2, y = it.cy + si*u*it.w/2 + co*v*it.h/2;
+      const q = toScreen(x, y);
+      a = Math.min(a, q[0]); b = Math.max(b, q[0]); c = Math.min(c, q[1]); d = Math.max(d, q[1]);
+    }
+  }
+  return [a, b, c, d];
+}
+function viewFor(items, pad){
+  const bb = bbox(items);
+  if(!bb) return {x:0, y:0, s: Math.min(W,H)/3400 || 0.2};
+  const saved = state.view;
+  state.view = {x:(bb[0]+bb[1])/2, y:(bb[2]+bb[3])/2, s:1};
+  const sb = screenBox(items);
+  const target = {x: state.view.x, y: state.view.y, s:1};
+  // recenter on the screen-space box center
+  const mid = toWorld((sb[0]+sb[1])/2, (sb[2]+sb[3])/2);
+  target.x = mid[0]; target.y = mid[1];
+  target.s = Math.min(W/Math.max(sb[1]-sb[0], 1e-3), H/Math.max(sb[3]-sb[2], 1e-3))*(pad || 0.88);
+  state.view = saved;
+  return target;
+}
+function fitView(items){ state.view = viewFor(items || drawOrder().flatMap(L => L.items)); }
+let anim = null;
+function animateTo(target){
+  if(anim) cancelAnimationFrame(anim);
+  const from = {...state.view};
+  if(window.matchMedia("(prefers-reduced-motion: reduce)").matches){ state.view = target; render(); return; }
+  const t0 = performance.now(), dur = 380;
+  const step = now => {
+    const k = Math.min(1, (now - t0)/dur), e = k < .5 ? 2*k*k : 1 - Math.pow(-2*k+2, 2)/2;
+    const s = Math.exp(Math.log(from.s) + (Math.log(target.s) - Math.log(from.s))*e);
+    state.view = {x: from.x + (target.x-from.x)*e, y: from.y + (target.y-from.y)*e, s};
+    render();
+    anim = k < 1 ? requestAnimationFrame(step) : null;
+  };
+  anim = requestAnimationFrame(step);
+}
+function setFocus(m){
+  state.focus = m;
+  if(state.refine && !state.refine.busy) setTimeout(renderRefPanel, 0);
+  const chip = $("#focusChip");
+  chip.hidden = !m;
+  if(m) $("#focusName").textContent = m.name;
+}
+function fullView(){ setFocus(null); state.selected = null; showInspector(); animateTo(viewFor(drawOrder().flatMap(L => L.items))); }
+function focusMontage(m){ setFocus(m); animateTo(viewFor(m.items, 0.82)); if(m.L && m.L.loadImages) ensureMontage(m.L, m); }
+
+function hitTest(sx, sy, only){
+  const [wx, wy] = toWorld(sx, sy), s = state.view.s;
+  const layers = drawOrder().reverse().filter(L => !only || L.type === only);
+  for(const L of layers){
+    for(let i = L.items.length-1; i >= 0; i--){
+      const it = L.items[i];
+      if(Math.max(it.w, it.h)*s < 6){ if(Math.hypot(wx-it.cx, wy-it.cy)*s < 5) return it; continue; }
+      const t = it.rot*Math.PI/180, dx = wx-it.cx, dy = wy-it.cy;
+      const u = dx*Math.cos(t) + dy*Math.sin(t), v = -dx*Math.sin(t) + dy*Math.cos(t);
+      if(Math.abs(u) <= it.w/2 && Math.abs(v) <= it.h/2) return it;
+    }
+  }
+  return null;
+}
+
+/* ---------- tooltip + inspector ---------- */
+const tip = $("#tip");
+function showTip(it, sx, sy){
+  if(!it){ tip.style.display = "none"; return; }
+  const k = it.sec.kv;
+  const lines = [`<b>${esc(it.label)}</b>`, esc(it.L.name),
+    `center ${it.cx.toFixed(2)}, ${it.cy.toFixed(2)} µm`, `size ${fmtLen(it.w)} × ${fmtLen(it.h)}`];
+  if(k.Magnification) lines.push(`mag ${esc(k.Magnification)}×`);
+  if(it.L.type === "tilt") lines.push(`${it.extra.tiltCount} tilts, ${it.extra.tiltRange}; showing ${isNaN(it.extra.shownTilt)?"n/a":it.extra.shownTilt.toFixed(1)+"°"}`);
+  if(k.ImageShift) lines.push(`IS ${esc(k.ImageShift)}`);
+  tip.innerHTML = lines.join("<br>");
+  tip.style.display = "block";
+  const r = tip.getBoundingClientRect();
+  let x = sx + 14, y = sy + 14;
+  if(x + r.width > W - 8) x = sx - r.width - 14;
+  if(y + r.height > H - 8) y = sy - r.height - 14;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+function showInspector(){
+  const it = state.selected, el = $("#inspector");
+  $("#banner").style.visibility = it ? "hidden" : "";
+  if(!it){ el.classList.remove("open"); return; }
+  el.classList.add("open");
+  $("#inspTitle").innerHTML = `${esc(it.montage ? (it.extra.pieces ? it.montage.name : it.montage.name + " · piece " + it.sec.index) : it.label)}<span class="sub">[${esc(it.sec.kind)} = ${esc(it.sec.index)}] · ${esc(TYPES[it.L.type].label)}</span>`;
+  const rows = [
+    ["File", it.doc.name],
+    ["Center X", `${it.cx.toFixed(3)} µm`], ["Center Y", `${it.cy.toFixed(3)} µm`],
+    ["Box size", `${it.w.toFixed(3)} × ${it.h.toFixed(3)} µm`],
+    ["Image size", it.extra.sz ? `${it.extra.sz[0]} × ${it.extra.sz[1]} px` : "unknown"],
+    ["Pixel size used", it.extra.pxA > 0 ? `${it.extra.pxA.toPrecision(4)} Å` : "unknown"],
+    ["Size from", it.extra.sizeSrc],
+    ["Pixel × mag", it.extra.pxA > 0 && it.extra.mag > 0 ? `${(it.extra.pxA*it.extra.mag/1e4).toFixed(2)} µm (camera pixel, roughly constant per camera)` : "n/a"],
+    ["Box rotation", `${it.rot.toFixed(2)}°`],
+    ...((it.L.type === "exposure" || it.L.type === "tilt") ? [["IS → stage", (() => { const T = calMatrixFor(it.doc, it.sec); return T ? `${T.desc}: [${T.m.map(v => v.toFixed(3)).join(", ")}]` : "fallback settings (no calibration for this MagIndex/CameraIndex)"; })()]] : []),
+    ...(it.L.offsetApplied ? [["Atlas offset", `${state.settings.offset.x.toFixed(2)}, ${state.settings.offset.y.toFixed(2)} µm (included above)`]] : [])
+  ];
+  if(it.extra.pieces) rows.push(["Montage", `section ${it.extra.section}, ${it.extra.pieces} pieces of ${it.extra.pieceSize ? it.extra.pieceSize.join(" × ") + " px" : "?"}`]);
+  if(it.extra.placement === "piece") rows.push(["Placement", "PieceCoordinates (no StagePosition in mdoc)"]);
+  if(it.extra.fit) rows.push(["Fitted px→stage", `${(it.extra.fit.th*180/Math.PI).toFixed(2)}°, ${(it.extra.fit.sc*1e4).toFixed(2)} Å/px${it.extra.fit.m<0?", mirrored":""}`]);
+  if(it.L.type === "tilt") rows.push(["Tilt series", `${it.extra.tiltCount} tilts, ${it.extra.tiltRange}`]);
+  const kvRows = Object.entries(it.sec.kv).map(([k,v]) => `<tr class="${["StagePosition","ImageShift","Magnification","TiltAngle","PieceCoordinates","PixelSpacing"].includes(k)?"em":""}"><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("");
+  const hdr = Object.entries(it.doc.header).map(([k,v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("");
+  $("#inspBody").innerHTML =
+    `<table class="kv">${rows.map(([k,v]) => `<tr class="em"><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table>
+     <details open><summary>Section keys (${Object.keys(it.sec.kv).length})</summary><table class="kv">${kvRows}</table></details>
+     <details><summary>File header (${Object.keys(it.doc.header).length})</summary><table class="kv">${hdr}</table></details>`;
+}
+$("#inspClose").addEventListener("click", () => { state.selected = null; showInspector(); render(); });
+
+/* ---------- interaction ---------- */
+const pointers = new Map();
+let drag = null, pinch = null;
+function pos(e){ const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+cv.addEventListener("pointerdown", e => {
+  cv.setPointerCapture(e.pointerId);
+  const p = pos(e); pointers.set(e.pointerId, p);
+  if(pointers.size === 1){ drag = {p, vx: state.view.x, vy: state.view.y, moved: false}; cv.classList.add("dragging"); }
+  else if(pointers.size === 2){
+    drag = null;
+    const [a, b] = [...pointers.values()];
+    const mid = [(a[0]+b[0])/2, (a[1]+b[1])/2];
+    pinch = {d: Math.hypot(a[0]-b[0], a[1]-b[1]), s: state.view.s, w: toWorld(...mid)};
+  }
+});
+cv.addEventListener("pointermove", e => {
+  const p = pos(e);
+  if(pointers.has(e.pointerId)) pointers.set(e.pointerId, p);
+  if(pinch && pointers.size === 2){
+    const [a, b] = [...pointers.values()];
+    const mid = [(a[0]+b[0])/2, (a[1]+b[1])/2], d = Math.hypot(a[0]-b[0], a[1]-b[1]);
+    state.view.s = pinch.s * d / pinch.d;
+    keepUnder(pinch.w, mid);
+    render(); return;
+  }
+  if(drag){
+    const dx = p[0]-drag.p[0], dy = p[1]-drag.p[1];
+    if(Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+    if(drag.moved){
+      const dw = screenDeltaToWorld(dx, dy);
+      state.view.x = drag.vx - dw[0];
+      state.view.y = drag.vy - dw[1];
+      showTip(null); render();
+    }
+  } else {
+    const it = hitTest(...p);
+    if(it !== state.hover){ state.hover = it; render(); }
+    showTip(it, ...p);
+  }
+  const w = toWorld(...p);
+  $("#cursor").textContent = `X ${w[0].toFixed(2)} µm   Y ${w[1].toFixed(2)} µm`;
+});
+function endPointer(e){
+  const p = pos(e);
+  if(drag && !drag.moved && pointers.size === 1 && state.calib){ calibClick(p); }
+  else if(drag && !drag.moved && pointers.size === 1){
+    const it = hitTest(...p), sq = hitTest(...p, "square");
+    if(sq && sq.montage && (!state.focus || state.focus.key !== sq.montage.key)){ state.selected = sq; showInspector(); focusMontage(sq.montage); }
+    else if(it && it.L.type === "atlas"){ fullView(); }
+    else { state.selected = it; showInspector(); render(); }
+  }
+  pointers.delete(e.pointerId);
+  if(pointers.size < 2) pinch = null;
+  if(!pointers.size){ drag = null; cv.classList.remove("dragging"); }
+}
+cv.addEventListener("pointerup", endPointer);
+cv.addEventListener("pointercancel", endPointer);
+cv.addEventListener("pointerleave", () => { if(!drag){ state.hover = null; showTip(null); render(); } });
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  const p = pos(e), w = toWorld(...p);
+  const f = Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015));
+  state.view.s = Math.min(Math.max(state.view.s*f, 1e-4), 1e5);
+  keepUnder(w, p);
+  render();
+}, {passive: false});
+window.addEventListener("keydown", e => {
+  if(e.target.matches("input,textarea,select")) return;
+  if(e.key === "f" || e.key === "F"){ fullView(); }
+  if(e.key === "Escape"){ if(state.calib){ if(state.calib.pending){ state.calib.pending = null; renderCalPanel(); render(); } return; } fullView(); }
+});
+
+/* ---------- controls ---------- */
+let pendingType = null;
+document.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", () => { pendingType = b.dataset.open; $("#fileInput").value = ""; $("#fileInput").click(); }));
+$("#openFolder").addEventListener("click", chooseFolder);
+$("#fileInput").addEventListener("change", e => openFiles(e.target.files, pendingType));
+$("#folderInput").addEventListener("change", e => setDataFolder([...e.target.files].map(f => ({file: f, path: f.webkitRelativePath || f.name}))));
+$("#clearAll").addEventListener("click", clearAll);
+$("#offAlign").addEventListener("click", alignOffset);
+$("#useRefined").addEventListener("change", e => { state.settings.useRefined = e.target.checked; rebuildKeepFocus(); });
+$("#refClear").addEventListener("click", () => { REFINED = {}; saveRefined(); rebuildKeepFocus(); setMsg("Cleared all refined positions."); });
+$("#calLoad").addEventListener("click", () => { $("#calInput").value = ""; $("#calInput").click(); });
+$("#calInput").addEventListener("change", async e => {
+  const f = e.target.files[0]; if(!f) return;
+  const cal = parseCalibrations(await f.text(), f.name);
+  if(!cal.nIS){ setMsg(`${f.name} has no ImageShiftMatrix block; is it a SerialEMcalibrations file?`); return; }
+  setCalibrations(cal, true);
+  setMsg(`Loaded ${cal.nIS} image-shift calibrations from ${f.name}.`);
+});
+$("#calClear").addEventListener("click", () => setCalibrations(null, true));
+$("#offReset").addEventListener("click", () => setOffset(0, 0, "Offset reset to 0."));
+$("#offOn").addEventListener("change", e => { state.settings.offset.on = e.target.checked; saveOffset(); rebuildKeepFocus(); });
+["offX", "offY"].forEach(id => $("#" + id).addEventListener("change", () => setOffset(Number($("#offX").value) || 0, Number($("#offY").value) || 0, "Offset typed in.")));
+$("#bannerClear").addEventListener("click", clearAll);
+$("#fitBtn").addEventListener("click", fullView);
+$("#focusBack").addEventListener("click", fullView);
+$("#originBtn").addEventListener("click", () => { state.view.x = 0; state.view.y = 0; render(); });
+const main = $("#main");
+main.addEventListener("dragover", e => { e.preventDefault(); main.classList.add("over"); });
+main.addEventListener("dragleave", e => { if(e.target === main || !main.contains(e.relatedTarget)) main.classList.remove("over"); });
+main.addEventListener("drop", async e => {
+  e.preventDefault(); main.classList.remove("over");
+  const {list, hasDir} = await filesFromDrop(e.dataTransfer);
+  if(hasDir){ setDataFolder(list); return; }
+  openFiles(list.map(x => x.file), null);
+});
+
+function readSettings(){
+  const S = state.settings;
+  S.isScale = Number($("#isScale").value) || 0;
+  S.isRot = Number($("#isRot").value) || 0;
+  S.isMirror = $("#isMirror").checked;
+  S.flipY = $("#flipY").checked;
+  S.viewRot = Number($("#viewRot").value) || 0;
+  S.gridDiam = Math.max(0, Number($("#gridDiam").value) || 0);
+  S.showGrid = $("#showGrid").checked;
+  S.showLabels = $("#showLabels").checked;
+  S.showPieceNums = $("#showPieceNums").checked;
+}
+["isScale","isRot","isMirror"].forEach(id => $("#"+id).addEventListener("input", () => { readSettings(); rebuildAll(); }));
+["flipY","showGrid","showLabels","showPieceNums"].forEach(id => $("#"+id).addEventListener("change", () => { readSettings(); render(); }));
+["viewRot","gridDiam"].forEach(id => $("#"+id).addEventListener("input", () => { const c = toScreen(0,0), w = toWorld(W/2, H/2); readSettings(); state.view.x = w[0]; state.view.y = w[1]; render(); }));
+function setMsg(t){ $("#msg").textContent = t; }
+
+/* ---------- example data (SerialEM-style mdoc text, parsed like real files) ---------- */
+function rnd(seed){ let s = seed; return () => (s = (s*16807) % 2147483647) / 2147483647; }
+function demoDocs(){
+  const R = rnd(42), out = [];
+  const rot = (x, y, d) => { const t = d*Math.PI/180; return [x*Math.cos(t)-y*Math.sin(t), x*Math.sin(t)+y*Math.cos(t)]; };
+  const hdr = (ps, sx, sy, extra="") => `PixelSpacing = ${ps}\nImageSize = ${sx} ${sy}\n${extra}DataMode = 1\n\n[T = SerialEM: example data generated in the browser]\n\n`;
+  function montage(name, centers, nx, ny, ps, mag, camRot){
+    const sx = 5760, sy = 4092, stx = Math.round(sx*0.9), sty = Math.round(sy*0.9);
+    const tx = (nx-1)*stx + sx, ty = (ny-1)*sty + sy;
+    let t = hdr(ps, sx, sy, `ImageFile = ${name.replace(/\.mdoc$/,"")}\nMontage = 1\n`), z = 0, mt = "";
+    centers.forEach(([cx, cy], sec) => {
+      for(let j = 0; j < ny; j++) for(let i = 0; i < nx; i++){
+        const px = i*stx, py = j*sty;
+        const [rx, ry] = rot((px+sx/2-tx/2)*ps/1e4, (py+sy/2-ty/2)*ps/1e4, camRot);
+        const jit = sx*ps/1e4*0.004;
+        t += `[ZValue = ${z++}]\nPieceCoordinates = ${px} ${py} ${sec}\nTiltAngle = 0.01\nStagePosition = ${(cx+rx+(R()-.5)*jit).toFixed(3)} ${(cy+ry+(R()-.5)*jit).toFixed(3)}\nStageZ = 14.2\nMagnification = ${mag}\nIntensity = 0.512\nPixelSpacing = ${ps}\nImageShift = 0 0\nRotationAngle = ${(camRot-90).toFixed(1)}\nExposureTime = 0.5\nBinning = 1\nMagIndex = 3\n\n`;
+      }
+      mt += `[MontSection = ${sec}]\nTiltAngle = 0.01\nStagePosition = ${cx} ${cy}\nStageZ = 14.2\nMagnification = ${mag}\nPixelSpacing = ${ps}\n\n`;
+    });
+    out.push({name, text: t + mt});
+  }
+  montage("grid3_atlas.mrc.mdoc", [[0, 0]], 4, 5, 1406, 62, 4);
+  montage("grid3_MMM.mrc.mdoc", [[-420, 310], [360, -420], [-95, -610], [610, 380], [-720, -150]], 4, 4, 38.73, 2250, 12);
+  let n = 1;
+  for(let j = 0; j < 4; j++) for(let i = 0; i < 5; i++){
+    const sx = -435 + i*7.5, sy = 299 + j*7.5;
+    for(let b = -1; b <= 1; b++) for(let a = -1; a <= 1; a++){
+      const id = String(n++).padStart(4, "0");
+      out.push({name: `grid3_sq01/FoilHole_${id}_Data.tif.mdoc`, text:
+        hdr(0.83, 5760, 4092) + `[FrameSet = 0]\nTiltAngle = 0.0\nStagePosition = ${sx.toFixed(3)} ${sy.toFixed(3)}\nStageZ = 14.6\nMagnification = 105000\nIntensity = 0.1402\nExposureDose = 50.1\nPixelSpacing = 0.83\nSpotSize = 8\nDefocus = -1.4\nImageShift = ${(a*2.5+(R()-.5)*.05).toFixed(4)} ${(b*2.5+(R()-.5)*.05).toFixed(4)}\nExposureTime = 2.4\nNumSubFrames = 40\nBinning = 1\nSubFramePath = X:\\grid3\\FoilHole_${id}_Data.tif\n`});
+    }
+  }
+  [[340,-440],[352,-398],[381,-430],[370,-405],[395,-447]].forEach(([x, y], k) => {
+    let t = hdr(1.362, 5760, 4092, `ImageFile = ts_${String(k+1).padStart(3,"0")}.mrc\n`), z = 0;
+    for(let a = -60; a <= 60; a += 3){
+      t += `[ZValue = ${z++}]\nTiltAngle = ${a.toFixed(2)}\nStagePosition = ${x.toFixed(3)} ${y.toFixed(3)}\nStageZ = 13.9\nMagnification = 64000\nPixelSpacing = 1.362\nImageShift = ${(a*0.004).toFixed(4)} ${(a*0.002).toFixed(4)}\nDefocus = -3.5\nExposureDose = 3.0\nBinning = 1\n\n`;
+    }
+    out.push({name: `ts_${String(k+1).padStart(3,"0")}.mrc.mdoc`, text: t});
+  });
+  return out.map(d => { const doc = parseMdoc(d.text, d.name); doc.src = {kind: "demo", path: d.name}; return doc; });
+}
+
+/* ---------- start ---------- */
+readTheme(); readSettings();
+new ResizeObserver(resize).observe(cv);
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { readTheme(); render(); });
+new MutationObserver(() => { readTheme(); render(); }).observe(document.documentElement, {attributes: true, attributeFilter: ["data-theme"]});
+loadDocs(demoDocs(), null);
+renderData();
+saveRefined();
+loadOffset();
+loadSavedCalibrations();
+detectServer();
+state.demo = true;
+renderLayers();
+requestAnimationFrame(() => { resize(); fitView(); render(); });
+</script>
+</body>
+</html>

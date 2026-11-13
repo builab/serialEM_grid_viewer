@@ -127,6 +127,10 @@ textarea{font-family:var(--font-mono);min-height:84px;resize:vertical}
 main{position:relative;min-height:0;min-width:0;overflow:hidden;background:var(--canvas)}
 canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
 canvas.dragging{cursor:grabbing}
+canvas.moving{cursor:move}
+.btn.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn:disabled{opacity:.5;cursor:default}
+.prow{display:flex;gap:6px;flex-wrap:wrap;grid-column:1/-1}
 .drop{position:absolute;inset:12px;border:2px dashed var(--accent);border-radius:12px;display:none;place-items:center;font-weight:600;color:var(--accent);background:color-mix(in srgb,var(--canvas) 80%,transparent);pointer-events:none}
 main.over .drop{display:grid}
 .status{position:absolute;left:12px;right:12px;bottom:10px;display:flex;gap:16px;align-items:center;font:12px var(--font-mono);color:var(--muted);pointer-events:none;font-variant-numeric:tabular-nums}
@@ -173,7 +177,9 @@ summary{cursor:pointer;color:var(--muted);font-size:12px}
       <button class="btn" data-open="tilt"><span class="sw" style="background:#e0a100"></span>Open tilt series</button>
       <button class="btn primary" id="openFolder">Choose data folder</button>
     </div>
-    <input type="file" id="fileInput" accept=".mdoc,.mrc,.st,.map,.mrcs,.ali" multiple hidden>
+    <input type="file" id="fileInput" accept=".mdoc,.mrc,.st,.map,.mrcs,.ali,.txt" multiple hidden>
+    <input type="file" id="tgtsInput" accept=".txt,.mdoc,.mrc" multiple hidden>
+    <input type="file" id="stateInput" accept=".json,application/json" hidden>
     <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
   </header>
 
@@ -188,6 +194,23 @@ summary{cursor:pointer;color:var(--muted);font-size:12px}
       <h2>Layers <span class="act"><button class="btn small" id="clearAll">Clear all</button></span></h2>
       <div id="layers"></div>
       <p class="hint">Select or drop the <code>.mdoc</code> and its <code>.mrc</code> together to see the images. Dropping a folder sets it as the data folder. Type, rotation and placement can be changed per layer.</p>
+    </section>
+
+    <section class="sec">
+      <h2>Place images by hand</h2>
+      <div class="fields">
+        <button class="btn small" id="moveBtn" aria-pressed="false" title="M">Move images: off</button>
+        <button class="btn small" id="snapBtn">Snap by correlation</button>
+        <label class="check full" for="moveGroup"><input id="moveGroup" type="checkbox" checked> Move images that share a stage position together</label>
+        <button class="btn small" id="resetPosBtn">Reset selected</button>
+      </div>
+      <p class="hint" id="moveStatus">Turn on Move, then drag an exposure or tilt series onto its feature on the square map. <code>[</code> and <code>]</code> rotate it (with Shift: 5°). Snap fine-tunes it by correlation with the square map. Positions are saved for display only; they do not change the calibration.</p>
+    </section>
+
+    <section class="sec">
+      <h2>PACEtomo targets <span class="act"><button class="btn small" id="paceOpen">Open _tgts.txt</button></span></h2>
+      <div id="paceList"></div>
+      <p class="hint">One <code>_tgts.txt</code> per area. Its <code>tgt_001_view.mrc</code> is matched to the square map, and the stage offset found there moves every target of the file. Target files can also be opened from the Data list. When picking files by hand, select the <code>_tgts.txt</code> with its <code>_view.mrc</code> and <code>tgt_00N.mrc</code> files.</p>
     </section>
 
     <section class="sec">
@@ -232,6 +255,16 @@ summary{cursor:pointer;color:var(--muted);font-size:12px}
       <p class="hint">180° matches the SerialEM Navigator. The axis marker at the bottom right shows where stage +X and +Y point.</p>
     </section>
 
+    <section class="sec">
+      <h2>Session</h2>
+      <div class="fields">
+        <button class="btn small" id="stateSave">Save state…</button>
+        <button class="btn small" id="stateLoad">Load state…</button>
+        <button class="btn small full" id="stateRestore" hidden>Restore last session</button>
+      </div>
+      <p class="hint" id="stateStatus">Saves the open files, layer settings, view, atlas offset, calibrations, placed positions and PACEtomo anchors to a .json file. Loading reopens the files from the same server or data folder.</p>
+    </section>
+
   </aside>
 
   <main id="main">
@@ -267,7 +300,7 @@ const state = {
   layers: [], nextId: 1, demo: false,
   view: {x:0, y:0, s:0.2},
   settings: {viewRot:180, gridDiam:2.44, isScale:1, isRot:0, isMirror:true, flipY:false, showGrid:true, showLabels:true, showPieceNums:false, useRefined:true, offset:{x:0, y:0, on:true, note:""}},
-  selected: null, hover: null, focus: null
+  selected: null, hover: null, focus: null, move: false, paceSel: null
 };
 
 /* ---------- parsing ---------- */
@@ -574,13 +607,25 @@ function buildLayer(L){
     const ox = L.offsetApplied ? off.x : 0, oy = L.offsetApplied ? off.y : 0;
     for(const it of L.items){ const r = REFINED[refKey(it)]; if(!r) continue; it.cx = r.x + ox; it.cy = r.y + oy; if(r.rot != null) it.rot = r.rot; it.flip = r.flip || 1; it.refined = r; }
   }
+  // tilt series named in an open PACEtomo _tgts.txt sit at their target (unless placed by hand)
+  if((L.type === "exposure" || L.type === "tilt") && PACE.length){
+    for(const it of L.items){
+      if(it.refined) continue;
+      const hit = paceMatch(it); if(!hit) continue;
+      const p = paceTargetPos(hit.g, hit.t), pr = hit.g.prev[hit.t.no];
+      it.cx = p[0]; it.cy = p[1]; it.pace = hit;
+      if(pr && pr.ok){ it.rot = pr.rot; it.flip = hit.g.flip; }
+      else if(hit.g.anchored){ it.rot = paceRot(hit.g); it.flip = hit.g.flip; }
+    }
+  }
 }
 // rebuild every layer but keep the current focus and selection
 function rebuildKeepFocus(){
   const fk = state.focus && state.focus.key;
+  state.hover = null;
   state.layers.forEach(buildLayer);
   if(fk){ const m = state.layers.flatMap(L => L.montages || []).find(x => x.key === fk); if(m) state.focus = m; else setFocus(null); }
-  reselect(); renderLayers(); render();
+  reselect(); renderLayers(); renderPace(); render();
 }
 function rebuildAll(){ state.layers.forEach(buildLayer); setFocus(null); if(state.selected && !state.layers.includes(state.selected.L)) state.selected = null; reselect(); renderLayers(); render(); }
 function reselect(){
@@ -626,9 +671,25 @@ function loadDocs(docs, forced, merge){
 const MRC_RE = /\.(mrc|st|map|mrcs|ali|preali)$/i;
 async function openFiles(fileList, forced){
   const all = [...fileList];
-  const files = all.filter(f => /\.mdoc$/i.test(f.name));
+  const tgts = all.filter(f => TGTS_RE.test(f.name));
+  let files = all.filter(f => /\.mdoc$/i.test(f.name));
   const mrcs = all.filter(f => MRC_RE.test(f.name));
-  for(const f of mrcs) data.extra.set(f.name.toLowerCase(), f);
+  for(const f of [...mrcs, ...files]) data.extra.set(f.name.toLowerCase(), f);
+  if(tgts.length){
+    if(state.demo) clearAll();
+    // mdocs of the View and target images belong to the target file, not to a layer of their own
+    const own = new Set();
+    for(const f of tgts){
+      try {
+        const text = await f.text();
+        for(const t of parseTgts(text).targets) for(const n of [t.viewfile, t.tgtfile]) if(n) own.add((n + ".mdoc").toLowerCase());
+        own.add(f.name.replace(TGTS_RE, "_tgt_001_view.mrc.mdoc").toLowerCase());
+        await openPace("file", f.webkitRelativePath || f.name, text);
+      } catch(e){ setMsg(`Could not read ${f.name}: ${e.message}`); }
+    }
+    files = files.filter(f => !own.has(f.name.toLowerCase()));
+    if(!files.length){ renderPace(); render(); return; }
+  }
   if(!files.length){
     if(mrcs.length){ const n = attachImages(); setMsg(n ? `Added ${mrcs.length} MRC file${mrcs.length===1?"":"s"}; images on for ${n} layer${n===1?"":"s"}.` : `Added ${mrcs.length} MRC file${mrcs.length===1?"":"s"}, but no open mdoc matches ${mrcs.length===1?"it":"them"}.`); renderLayers(); render(); }
     else setMsg("No .mdoc or .mrc files in that selection.");
@@ -681,8 +742,8 @@ async function filesFromDrop(dt){
   return {list: [...dt.files].map(f => ({file: f, path: f.name})), hasDir: false};
 }
 function clearAll(){
-  state.layers = []; state.selected = null; state.demo = false; setFocus(null);
-  $("#banner").hidden = true; showInspector(); renderLayers(); renderDataList(); render();
+  state.layers = []; state.selected = null; state.demo = false; state.paceSel = null; PACE.length = 0; setFocus(null);
+  $("#banner").hidden = true; showInspector(); renderLayers(); renderPace(); renderDataList(); render();
 }
 
 /* ---------- data source: picked folder or local server ---------- */
@@ -696,7 +757,7 @@ function setDataFolder(list){
     const n = path.split("/").pop().toLowerCase();
     if(!byName.has(n)) byName.set(n, []);
     byName.get(n).push(path);
-    if(/\.mdoc$/i.test(path)) mdocs.push(path);
+    if(/\.mdoc$/i.test(path) || TGTS_RE.test(path)) mdocs.push(path);
     else if(/\.(mrc|st|map|mrcs)$/i.test(path)) mrc++;
   }
   mdocs.sort((a, b) => a.localeCompare(b, undefined, {numeric: true}));
@@ -708,7 +769,7 @@ function setDataFolder(list){
   renderData(); renderLayers();
 }
 const hasData = () => !!(data.folder || data.server || data.extra.size);
-function openedPaths(){ const set = new Set(); for(const L of state.layers) for(const d of L.docs) set.add(`${d.src.kind}:${d.src.path}`); return set; }
+function openedPaths(){ const set = new Set(); for(const L of state.layers) for(const d of L.docs) set.add(`${d.src.kind}:${d.src.path}`); for(const g of PACE) set.add(g.key); return set; }
 
 function renderData(){
   const src = $("#dataSource"), br = $("#dataBrowse");
@@ -777,6 +838,14 @@ async function readText(kind, path){
 async function openPaths(list){
   if(!list.length) return;
   if(state.demo) clearAll();
+  const tg = list.filter(x => TGTS_RE.test(x.path));
+  list = list.filter(x => !TGTS_RE.test(x.path));
+  for(const x of tg){
+    try { await openPace(x.kind, x.path, await readText(x.kind, x.path)); }
+    catch(e){ dataError(`Could not read ${x.path.split("/").pop()}: ${e.message}`); }
+  }
+  if(tg.length){ renderDataList(); renderPace(); render(); }
+  if(!list.length) return;
   const docs = [];
   for(const {kind, path} of list){
     try { const d = parseMdoc(await readText(kind, path), path); d.src = {kind, path}; docs.push(d); }
@@ -794,6 +863,8 @@ async function openPaths(list){
   render();
 }
 function zoomToDoc(kind, path){
+  const pg = PACE.find(g => g.key === `${kind}:${path}`);
+  if(pg) return zoomPace(pg);
   const its = state.layers.flatMap(L => L.items.filter(it => it.doc.src.kind === kind && it.doc.src.path === path));
   if(its.length){ setFocus(null); animateTo(viewFor(its, 0.6)); }
   else if(!state.layers.some(L => L.docs.some(d => d.src.kind === kind && d.src.path === path))) openPaths([{kind, path}]);
@@ -880,7 +951,10 @@ function getHeader(doc){
     if(!MODE_BYTES[mode]) throw new Error(`${handle.label}: MRC mode ${mode} is not supported.`);
     const next = dv.getInt32(92, true);
     const signedBytes = dv.getInt32(152, true) === 1146047817 ? (dv.getInt32(156, true) & 1) === 1 : false;
-    return {handle, nx, ny, nz, mode, bpp: MODE_BYTES[mode], offset: 1024 + Math.max(0, next), signedBytes};
+    // pixel size in Å from the cell dimensions (SerialEM writes them), for images without an mdoc
+    const mx = dv.getInt32(28, true), xlen = dv.getFloat32(40, true);
+    const pxA = mx > 0 && xlen > 0 && isFinite(xlen) ? xlen/mx : NaN;
+    return {handle, nx, ny, nz, mode, bpp: MODE_BYTES[mode], offset: 1024 + Math.max(0, next), signedBytes, pxA};
   })());
   return hdrCache.get(doc.id);
 }
@@ -1807,6 +1881,482 @@ async function alignOffset(){
   finally { $("#offAlign").disabled = false; }
 }
 
+/* ---------- matching one image against the square map under it (used by Snap and the PACEtomo anchor) ---------- */
+function squareFor(cx, cy){
+  const cands = [];
+  for(const L of state.layers){
+    if(L.type !== "square" || !L.visible) continue;
+    for(const m of L.montages){ const b = bbox(m.items); if(b && cx > b[0] && cx < b[1] && cy > b[2] && cy < b[3]) cands.push({L, m}); }
+  }
+  const f = state.focus && state.focus.L && state.focus.L.type === "square" ? state.focus : null;
+  if(f){ const c = cands.find(x => x.m.key === f.key); if(c) return c; }
+  if(cands.length) return cands[0];
+  return f ? {L: f.L, m: f} : null;
+}
+async function squareParts(L, key){
+  if(!L.loadImages){ L.loadImages = true; renderLayers(); }
+  let m = L.montages.find(x => x.key === key);
+  if(!m) throw new Error("square map not found");
+  await ensureMontage(L, m);
+  m = L.montages.find(x => x.key === key) || m;
+  const secOf = z => imageSections(m.doc).find(x => Number(x.index) === z);
+  const parts = m.tiles.filter(t => imgCache.has(t.key)).map(t => ({doc: m.doc, sec: secOf(Number(t.key.split("|")[1])), cx: t.cx, cy: t.cy, w: t.w, h: t.h, rot: t.rot, flip: t.flip})).filter(t => t.sec);
+  if(!parts.length) throw new Error("the square map images could not be read");
+  return {parts, name: m.name};
+}
+// mov: {doc, sec, cx, cy, w, h}; opts: {margin µm, rot (null = square map orientation), span °, step °}
+async function matchToSquare(mov, opts){
+  const sq = squareFor(mov.cx, mov.cy);
+  if(!sq) throw new Error("no square map under it. Open the square map mdoc and its .mrc");
+  const {parts: mmm, name} = await squareParts(sq.L, sq.m.key);
+  const base = opts.rot != null ? opts.rot : mmm[0].rot, flip = mmm[0].flip || 1;
+  const hw = Math.hypot(mov.w, mov.h)/2, m = opts.margin;
+  const R = [mov.cx-hw-m, mov.cx+hw+m, mov.cy-hw-m, mov.cy+hw+m];
+  const parts = mmm.filter(t => Math.abs(t.cx - mov.cx) < Math.hypot(t.w, t.h)/2 + hw + m && Math.abs(t.cy - mov.cy) < Math.hypot(t.w, t.h)/2 + hw + m);
+  if(!parts.length) throw new Error("it is not on the square map");
+  const res = Math.max(Math.min(...parts.map(t => nativeUm(t.doc, t.sec))), nativeUm(mov.doc, mov.sec) || 0, (R[1]-R[0])/420);
+  for(const t of parts) t.canvas = (await imageAt(t.doc, t.sec, res)).canvas;
+  const mv = {canvas: (await imageAt(mov.doc, mov.sec, res)).canvas, cx: mov.cx, cy: mov.cy, w: mov.w, h: mov.h, flip};
+  const hpR = Math.max(2, Math.round(2*hw/res/25)), lim = Math.max(2, Math.round(m/res));
+  const span = opts.span ?? 6, step = opts.step ?? 1.5, coarse = [];
+  for(let d = -span; d <= span + 1e-9; d += step) coarse.push(base + d);
+  let best = await matchRegion(parts, mv, R, res, coarse, lim, hpR);
+  best = await matchRegion(parts, mv, R, res, [best.rot - step/2, best.rot, best.rot + step/2], lim, hpR);
+  return {...best, flip, square: name};
+}
+
+/* ---------- Method 1: place exposures and tilt series by hand (saved positions, not a calibration) ---------- */
+const isImgItem = it => !!it && (it.L.type === "exposure" || it.L.type === "tilt");
+function moveMsg(t){ $("#moveStatus").textContent = t; setMsg(t); }
+function setMove(on){
+  state.move = on;
+  const b = $("#moveBtn"); b.textContent = `Move images: ${on ? "on" : "off"}`; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false");
+  cv.classList.toggle("moving", on);
+  if(on && state.calib) endCalib();
+  moveMsg(on ? "Drag an exposure, a tilt series or a PACEtomo View onto its place. Click to select; [ ] rotate; Snap fine-tunes. Press M to stop." : "Move is off: dragging pans the map again.");
+}
+function groupMembers(it){
+  if(!$("#moveGroup").checked) return [it];
+  const st = stagePos(it.doc, it.sec); if(!st) return [it];
+  const out = [];
+  for(const L of state.layers){
+    if(!isImgItem({L}) || !L.visible) continue;
+    for(const m of L.items){ const s = stagePos(m.doc, m.sec); if(m === it || (s && Math.hypot(s[0]-st[0], s[1]-st[1]) < 0.05)) out.push(m); }
+  }
+  return out;
+}
+function commitManual(items, info){
+  const off = state.settings.offset, date = new Date().toLocaleString();
+  for(const m of items){
+    const ox = m.L.offsetApplied ? off.x : 0, oy = m.L.offsetApplied ? off.y : 0;
+    REFINED[refKey(m)] = {x: m.cx - ox, y: m.cy - oy, rot: m.rot, flip: m.flip || 1, manual: !(info && info.score != null), score: info && info.score != null ? info.score : null, date};
+  }
+  saveRefined(); state.settings.useRefined = true; $("#useRefined").checked = true;
+  rebuildKeepFocus();
+}
+function rotateSelected(d){
+  const it = state.selected;
+  if(isImgItem(it)){
+    const mem = groupMembers(it), t = d*Math.PI/180, c = Math.cos(t), s = Math.sin(t);
+    for(const m of mem){
+      const dx = m.cx - it.cx, dy = m.cy - it.cy;
+      m.cx = it.cx + c*dx - s*dy; m.cy = it.cy + s*dx + c*dy; m.rot += d;
+    }
+    commitManual(mem);
+    moveMsg(`Rotated ${mem.length > 1 ? `${mem.length} images` : "the image"} to ${(it.rot + 0).toFixed(1)}°.`);
+  } else if(state.paceSel){
+    const g = state.paceSel; g.rot = paceRot(g) + d; g.rotSet = true; savePace(g); rebuildKeepFocus(); renderPace();
+    moveMsg(`${g.name}: View rotation ${g.rot.toFixed(1)}°.`);
+  } else moveMsg("Select an image first.");
+}
+async function snapSelected(){
+  const it = state.selected;
+  if(!isImgItem(it)){ if(state.paceSel) return anchorPace(state.paceSel); return moveMsg("Select an exposure, a tilt series or a PACEtomo View first."); }
+  const mem = groupMembers(it), btn = $("#snapBtn");
+  btn.disabled = true; moveMsg("Matching the selected image to the square map…");
+  try {
+    const margin = Math.min(3, Math.max(0.3, 0.6*Math.max(it.w, it.h)));
+    const r = await matchToSquare({doc: it.doc, sec: it.sec, cx: it.cx, cy: it.cy, w: it.w, h: it.h}, {margin, rot: it.refined ? it.rot : null, span: it.refined ? 2 : 6, step: 1});
+    if(r.score < 0.15){ moveMsg(`Match score ${r.score.toFixed(2)} is too low, so nothing was moved. Drag it closer and snap again.`); return; }
+    const dr = r.rot - it.rot;
+    for(const m of mem){ m.cx += r.dx; m.cy += r.dy; m.rot += dr; m.flip = r.flip; }
+    commitManual(mem, {score: r.score});
+    moveMsg(`Snapped ${mem.length > 1 ? `${mem.length} images` : "the image"} by ${Math.hypot(r.dx, r.dy).toFixed(2)} µm, rotation ${r.rot.toFixed(1)}°, score ${r.score.toFixed(2)}.${r.score < 0.3 ? " Low score: check by eye." : ""}`);
+  } catch(e){ moveMsg(`Snap failed: ${e.message}`); }
+  finally { btn.disabled = false; }
+}
+function resetSelected(){
+  const it = state.selected;
+  if(isImgItem(it)){
+    const mem = groupMembers(it); let n = 0;
+    for(const m of mem) if(REFINED[refKey(m)]){ delete REFINED[refKey(m)]; n++; }
+    saveRefined(); rebuildKeepFocus(); moveMsg(n ? `Reset ${n} position${n === 1 ? "" : "s"}.` : "The selection had no saved position.");
+  } else if(state.paceSel) resetPace(state.paceSel);
+  else moveMsg("Select an image first.");
+}
+
+/* ---------- Method 2: PACEtomo _tgts.txt: anchor the View image, then place every target ---------- */
+const TGTS_RE = /_tgts(_p\d+)?\.txt$/i;
+const PACE_KEY = "mdocStageMap.pace", PACE_COLOR = "#c2185b";
+let PACESTORE = {};
+try { PACESTORE = JSON.parse(localStorage.getItem(PACE_KEY) || "{}") || {}; } catch(e){ PACESTORE = {}; }
+const PACE = [];
+let paceSeq = 0;
+function savePaceStore(){ try { localStorage.setItem(PACE_KEY, JSON.stringify(PACESTORE)); } catch(e){} }
+function savePace(g){
+  PACESTORE[g.key] = {delta: g.delta, rot: g.rot, rotSet: !!g.rotSet, flip: g.flip, anchored: g.anchored, score: g.score, prev: g.prev, date: new Date().toLocaleString()};
+  savePaceStore();
+}
+function parseTgts(text){
+  const settings = {}, targets = [];
+  let cur = null;
+  for(const raw of text.split(/\r?\n/)){
+    const line = raw.trim(); if(!line) continue;
+    let m = line.match(/^_set\s+(\w+)\s*=\s*(.*)$/);
+    if(m){ settings[m[1]] = m[2]; cur = null; continue; }
+    m = line.match(/^_tgt\s*=\s*(\S+)/);
+    if(m){ cur = {no: m[1]}; targets.push(cur); continue; }
+    if(/^_\w+/.test(line)){ cur = {}; continue; }          // _geo, _pbr, _nbr blocks are not targets
+    m = line.match(/^(\w+)\s*=\s*(.*)$/);
+    if(m && cur) cur[m[1]] = m[2].trim();
+  }
+  return {settings, targets};
+}
+const dirOf = p => p.includes("/") ? p.slice(0, p.lastIndexOf("/") + 1) : "";
+async function readSibling(kind, dir, name){
+  try {
+    if(kind === "server"){ const r = await fetch(`api/file?path=${encodeURIComponent(dir + name)}`, {cache: "no-store"}); return r.ok ? await r.text() : null; }
+    if(kind === "folder" && data.folder){
+      let f = data.folder.files.get(dir + name);
+      if(!f){ const h = data.folder.byName.get(name.toLowerCase()) || []; if(h.length === 1) f = data.folder.files.get(h[0]); }
+      if(f) return await f.text();
+    }
+    const f = data.extra.get(name.toLowerCase());
+    return f ? await f.text() : null;
+  } catch(e){ return null; }
+}
+// an image file as a doc: its own mdoc if there is one, else the size and pixel size from the MRC header
+async function imageDoc(kind, dir, mrcName){
+  const mdocName = mrcName + ".mdoc", txt = await readSibling(kind, dir, mdocName);
+  const doc = parseMdoc(txt || "", dir + mdocName);
+  doc.src = {kind, path: dir + mdocName}; doc.synthetic = !txt;
+  const h = await getHeader(doc);
+  let sec = imageSections(doc)[0];
+  if(!sec){ sec = {kind: "ZValue", index: "0", kv: {}}; doc.sections.push(sec); }
+  if(!(num(get(doc, sec, "PixelSpacing")) > 0)){
+    if(!(h.pxA > 0)) throw new Error(`${mrcName}: no pixel size in an mdoc or in the MRC header`);
+    doc.header.PixelSpacing = String(h.pxA);
+  }
+  if(!imageSize(doc, sec)) doc.header.ImageSize = `${h.nx} ${h.ny}`;
+  const px = num(get(doc, sec, "PixelSpacing"))/1e4, sz = imageSize(doc, sec);
+  return {doc, sec, px, w: sz[0]*px, h: sz[1]*px, canvas: null};
+}
+async function openPace(kind, path, text){
+  const key = `${kind}:${path}`, old = PACE.find(g => g.key === key);
+  if(old){ zoomPace(old); return old; }
+  const t = parseTgts(text);
+  const file = path.split("/").pop(), root = file.replace(TGTS_RE, "");
+  const fnum = v => (v == null || v === "" || !isFinite(Number(v))) ? NaN : Number(v);
+  const targets = t.targets.map(x => {
+    const sx = fnum(x.stageX), sy = fnum(x.stageY);
+    return {no: x.no, tgtfile: x.tgtfile || null, tsfile: x.tsfile || null, viewfile: x.viewfile || null, SSX: fnum(x.SSX), SSY: fnum(x.SSY),
+      stage: isFinite(sx) && isFinite(sy) ? [sx, sy] : null, skip: /^true$/i.test(x.skip || "")};
+  });
+  if(!targets.length) throw new Error(`${file} has no _tgt entries`);
+  if(!targets[0].stage) throw new Error(`${file}: target 1 has no stageX/stageY`);
+  const sv = PACESTORE[key] || {};
+  const g = {id: ++paceSeq, key, kind, path, dir: dirOf(path), name: file.replace(/\.txt$/i, ""), root, settings: t.settings, targets,
+    viewfile: targets[0].viewfile || `${root}_tgt_001_view.mrc`, view: null, previews: {}, visible: true, showImg: true,
+    delta: sv.delta || [0, 0], rot: sv.rot ?? null, rotSet: !!sv.rotSet, flip: sv.flip || 1, anchored: !!sv.anchored, score: sv.score ?? null, prev: sv.prev || {},
+    status: sv.anchored ? `Anchor restored (${sv.date || "earlier"}).` : "Not anchored yet: positions are SerialEM's nominal stage positions.", err: "", busy: false};
+  const missing = targets.filter(x => !x.stage).length;
+  if(missing) g.err = `${missing} target${missing === 1 ? "" : "s"} without stageX/stageY are not shown.`;
+  PACE.push(g);
+  renderPace(); rebuildKeepFocus();
+  loadPaceView(g);
+  return g;
+}
+async function loadPaceView(g){
+  try {
+    g.view = await imageDoc(g.kind, g.dir, g.viewfile);
+    g.view.canvas = (await imageAt(g.view.doc, g.view.sec, Math.max(g.view.px, Math.max(g.view.w, g.view.h)/1200))).canvas;
+  } catch(e){ g.view = g.view && g.view.canvas ? g.view : null; g.err = `View image ${g.viewfile}: ${e.message}`; }
+  renderPace(); render();
+}
+const paceOff = () => { const o = state.settings.offset; return o.on ? [o.x, o.y] : [0, 0]; };
+function paceRot(g){
+  if(g.rot != null) return g.rot;
+  for(const L of state.layers) if(L.type === "square" && L.montages[0] && L.montages[0].tiles[0]) return L.montages[0].tiles[0].rot;
+  return 0;
+}
+function paceViewCenter(g){ const s = g.targets[0].stage, o = paceOff(); return [s[0] + g.delta[0] + o[0], s[1] + g.delta[1] + o[1]]; }
+function paceTargetPos(g, t, raw){
+  const o = paceOff(), p = !raw && g.prev[t.no] && g.prev[t.no].ok ? g.prev[t.no].d : [0, 0];
+  return [t.stage[0] + g.delta[0] + o[0] + p[0], t.stage[1] + g.delta[1] + o[1] + p[1]];
+}
+const paceViewBox = g => { const c = paceViewCenter(g); return {cx: c[0], cy: c[1], w: g.view.w, h: g.view.h, rot: paceRot(g), flip: g.flip}; };
+function paceMatch(it){
+  const name = baseName(it.doc.name).toLowerCase(), dir = dirOf(it.doc.src.path || "");
+  let loose = null;
+  for(const g of PACE){
+    if(!g.visible) continue;
+    for(const t of g.targets){
+      if(!t.tsfile || !t.stage || baseName(t.tsfile).toLowerCase() !== name) continue;
+      if(it.doc.src.kind === g.kind && dir === g.dir) return {g, t};
+      if(!loose) loose = {g, t};
+    }
+  }
+  return loose;
+}
+const paceItems = g => state.layers.flatMap(L => L.items.filter(it => it.pace && it.pace.g === g && !it.refined));
+function paceHit(sx, sy){
+  const [x, y] = toWorld(sx, sy);
+  for(let i = PACE.length - 1; i >= 0; i--){ const g = PACE[i]; if(g.visible && g.view && insideBox(x, y, paceViewBox(g))) return g; }
+  return null;
+}
+function zoomPace(g){
+  const pts = g.targets.filter(t => t.stage).map(t => { const p = paceTargetPos(g, t); return {cx: p[0], cy: p[1], w: 0.5, h: 0.5, rot: 0}; });
+  if(g.view) pts.push(paceViewBox(g));
+  setFocus(null); animateTo(viewFor(pts, 0.6));
+}
+async function anchorPace(g){
+  if(g.busy) return;
+  if(!g.view){ g.status = "The View image is not loaded, so the area cannot be anchored. Place it by dragging with Move on."; renderPace(); return; }
+  g.busy = true; g.status = "Matching the View image to the square map…"; renderPace();
+  try {
+    const c = paceViewCenter(g), again = g.anchored;
+    const margin = again ? Math.min(3, Math.max(1, 0.15*Math.max(g.view.w, g.view.h))) : Math.min(8, Math.max(2, 0.4*Math.max(g.view.w, g.view.h)));
+    const r = await matchToSquare({doc: g.view.doc, sec: g.view.sec, cx: c[0], cy: c[1], w: g.view.w, h: g.view.h},
+      {margin, rot: again || g.rotSet ? paceRot(g) : null, span: again ? 3 : 15, step: again ? 1 : 2.5});
+    if(r.score < 0.15){ g.status = `Match score ${r.score.toFixed(2)} is too low, so nothing was moved. Drag the View near its place (Move on) and anchor again.`; }
+    else {
+      g.delta = [g.delta[0] + r.dx, g.delta[1] + r.dy]; g.rot = r.rot; g.rotSet = true; g.flip = r.flip; g.anchored = true; g.score = r.score;
+      g.status = `Anchored on ${r.square}: moved ${Math.hypot(r.dx, r.dy).toFixed(2)} µm, View rotation ${r.rot.toFixed(1)}°, score ${r.score.toFixed(2)}.${r.score < 0.3 ? " Low score: check by eye." : ""}`;
+      savePace(g);
+    }
+  } catch(e){ g.status = `Anchor failed: ${e.message}`; }
+  g.busy = false; rebuildKeepFocus(); renderPace();
+}
+// match each tgt_00N.mrc Preview inside the anchored View image
+async function refinePace(g){
+  if(g.busy) return;
+  if(!g.view){ g.status = "The View image is not loaded."; renderPace(); return; }
+  const todo = g.targets.filter(t => t.tgtfile && t.stage);
+  if(!todo.length){ g.status = "This target file names no tgt_00N.mrc Preview images (target pattern), so there is nothing to refine."; renderPace(); return; }
+  g.busy = true; renderPace();
+  const vb = paceViewBox(g); let ok = 0, outside = 0, failed = 0;
+  for(let i = 0; i < todo.length; i++){
+    const t = todo[i];
+    g.status = `Matching Preview ${i + 1} of ${todo.length}…`; renderPace();
+    try {
+      if(!g.previews[t.no]) g.previews[t.no] = await imageDoc(g.kind, g.dir, t.tgtfile);
+      const pv = g.previews[t.no];
+      if(!pv.canvas) pv.canvas = (await imageAt(pv.doc, pv.sec, Math.max(pv.px, Math.max(pv.w, pv.h)/600))).canvas;
+      const [sx, sy] = paceTargetPos(g, t, true);
+      if(!insideBox(sx, sy, vb)){ outside++; delete g.prev[t.no]; continue; }
+      const hw = Math.hypot(pv.w, pv.h)/2;
+      const fixedAt = async res => ({...vb, canvas: (await imageAt(g.view.doc, g.view.sec, res)).canvas});
+      const movAt = async (res, cx, cy) => ({canvas: (await imageAt(pv.doc, pv.sec, res)).canvas, cx, cy, w: pv.w, h: pv.h, flip: g.flip});
+      const m1 = Math.min(2, Math.max(0.4, 1.5*Math.max(pv.w, pv.h)));
+      const R1 = [sx-hw-m1, sx+hw+m1, sy-hw-m1, sy+hw+m1];
+      const r1 = Math.max(g.view.px, pv.px, (R1[1]-R1[0])/400);
+      const angles = [-12, -9, -6, -3, 0, 3, 6, 9, 12].map(d => vb.rot + d);
+      const c1 = await matchRegion([await fixedAt(r1)], await movAt(r1, sx, sy), R1, r1, angles, Math.round(m1/r1), Math.max(2, Math.round(2*hw/r1/25)));
+      const fx = sx + c1.dx, fy = sy + c1.dy, m2 = Math.max(0.05, Math.min(0.3, 4*r1 + 0.1*Math.max(pv.w, pv.h)));
+      const R2 = [fx-hw-m2, fx+hw+m2, fy-hw-m2, fy+hw+m2];
+      const r2 = Math.max(g.view.px, pv.px, (R2[1]-R2[0])/400);
+      const c2 = await matchRegion([await fixedAt(r2)], await movAt(r2, fx, fy), R2, r2, [-1, 0, 1].map(d => c1.rot + d), Math.round(m2/r2), Math.max(2, Math.round(2*hw/r2/25)));
+      const score = Math.min(c1.score, c2.score);
+      g.prev[t.no] = {d: [c1.dx + c2.dx, c1.dy + c2.dy], rot: c2.rot, score, ok: score > 0.2};
+      if(score > 0.2) ok++; else failed++;
+    } catch(e){ failed++; g.prev[t.no] = {d: [0, 0], rot: vb.rot, score: 0, ok: false, err: e.message}; }
+  }
+  g.status = `Previews: ${ok} matched in the View, ${failed} not matched${outside ? `, ${outside} outside the View (kept at the anchored position)` : ""}.`;
+  g.busy = false; savePace(g); rebuildKeepFocus(); renderPace();
+}
+function resetPace(g){
+  delete PACESTORE[g.key]; savePaceStore();
+  Object.assign(g, {delta: [0, 0], rot: null, rotSet: false, flip: 1, anchored: false, score: null, prev: {}, status: "Reset to SerialEM's nominal stage positions."});
+  rebuildKeepFocus(); renderPace();
+}
+function openPaceTS(g){
+  const names = g.targets.filter(t => t.tsfile).map(t => t.tsfile + ".mdoc");
+  if(!names.length){ g.status = "No tsfile names in this target file."; renderPace(); return; }
+  if(g.kind === "file"){ g.status = `Select the tilt series mdoc files (${names.slice(0, 2).join(", ")}…) with Open tilt series.`; renderPace(); return; }
+  const prev = data.openType; data.openType = "tilt";
+  openPaths(names.map(n => ({kind: g.kind, path: g.dir + n}))).finally(() => { data.openType = prev; });
+}
+function renderPace(){
+  const box = $("#paceList"); if(!box) return;
+  if(!PACE.length){ box.innerHTML = `<div class="empty">No PACEtomo target files open.</div>`; return; }
+  box.innerHTML = PACE.map(g => {
+    const n = g.targets.length, placed = state.layers.reduce((a, L) => a + L.items.filter(it => it.pace && it.pace.g === g).length, 0);
+    const nprev = Object.values(g.prev).filter(p => p.ok).length;
+    const view = g.view ? `${g.viewfile} · ${fmtLen(g.view.w)} × ${fmtLen(g.view.h)}${g.view.doc.synthetic ? " (size from MRC header)" : ""}` : (g.err ? "" : `${g.viewfile} · loading…`);
+    const sel = state.paceSel === g ? ` style="border-color:${PACE_COLOR}"` : "";
+    return `<div class="layer" data-pace="${g.id}"${sel}>
+      <div class="layer-head">
+        <input type="checkbox" data-pact="vis" ${g.visible ? "checked" : ""} aria-label="Show ${esc(g.name)}">
+        <span class="sw" style="width:12px;height:12px;border-radius:3px;background:${PACE_COLOR}"></span>
+        <button class="lname" data-pact="zoom" title="Zoom to ${esc(g.name)}">${esc(g.name)}</button>
+        <span class="count">${n} target${n === 1 ? "" : "s"}</span>
+        <button class="x" data-pact="remove" aria-label="Close ${esc(g.name)}">×</button>
+      </div>
+      <div class="layer-ctl">
+        ${view ? `<div class="lsize">${esc(view)}</div>` : ""}
+        <div class="limg">${esc(g.status)}${g.anchored ? ` Offset ${g.delta[0].toFixed(2)}, ${g.delta[1].toFixed(2)} µm.` : ""}${nprev ? ` ${nprev} Preview${nprev === 1 ? "" : "s"} matched.` : ""}</div>
+        ${g.err ? `<div class="lwarn">${esc(g.err)}</div>` : ""}
+        <label class="lcheck full"><input type="checkbox" data-pact="img" ${g.showImg ? "checked" : ""}> Show the View and Preview images</label>
+        <div class="prow">
+          <button class="btn small" data-pact="anchor" ${g.busy || !g.view ? "disabled" : ""}>${g.anchored ? "Re-anchor" : "Anchor on square map"}</button>
+          <button class="btn small" data-pact="refine" ${g.busy || !g.view ? "disabled" : ""}>Refine targets in View</button>
+          <button class="btn small" data-pact="ts">Open tilt series</button>
+          <button class="btn small" data-pact="reset" ${g.busy ? "disabled" : ""}>Reset</button>
+        </div>
+        <div class="limg">${placed} of ${g.targets.filter(t => t.tsfile).length} tilt series placed from this file.</div>
+      </div></div>`;
+  }).join("");
+}
+$("#paceList").addEventListener("click", e => {
+  const el = e.target.closest("[data-pact]"), row = e.target.closest("[data-pace]");
+  const g = row && PACE.find(x => x.id === Number(row.dataset.pace)); if(!el || !g) return;
+  const a = el.dataset.pact;
+  if(a === "zoom"){ state.paceSel = g; zoomPace(g); renderPace(); }
+  else if(a === "anchor") anchorPace(g);
+  else if(a === "refine") refinePace(g);
+  else if(a === "ts") openPaceTS(g);
+  else if(a === "reset") resetPace(g);
+  else if(a === "remove"){ PACE.splice(PACE.indexOf(g), 1); if(state.paceSel === g) state.paceSel = null; rebuildKeepFocus(); renderPace(); renderDataList(); }
+});
+$("#paceList").addEventListener("change", e => {
+  const el = e.target, row = el.closest("[data-pace]"), g = row && PACE.find(x => x.id === Number(row.dataset.pace)); if(!g) return;
+  if(el.dataset.pact === "vis"){ g.visible = el.checked; rebuildKeepFocus(); renderPace(); }
+  else if(el.dataset.pact === "img"){ g.showImg = el.checked; render(); }
+});
+function drawPace(){
+  const s = state.view.s;
+  for(const g of PACE){
+    if(!g.visible) continue;
+    const selected = state.paceSel === g;
+    if(g.view){
+      const b = paceViewBox(g);
+      if(g.showImg && g.view.canvas) drawTile({tile: g.view.canvas}, b, s);
+      const [x, y] = toScreen(b.cx, b.cy);
+      ctx.save(); ctx.translate(x, y); ctx.rotate(canvasAngle(b.rot));
+      ctx.strokeStyle = PACE_COLOR; ctx.lineWidth = selected ? 2.5 : 1.4; ctx.setLineDash(g.anchored ? [] : [6, 4]);
+      ctx.strokeRect(-b.w*s/2, -b.h*s/2, b.w*s, b.h*s); ctx.setLineDash([]); ctx.restore();
+      if(state.settings.showLabels && b.w*s > 60){
+        ctx.font = `600 11px ${getFont("--font-body")}`; ctx.fillStyle = PACE_COLOR; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+        const top = toScreen(b.cx, b.cy); ctx.fillText(g.root || g.name, top[0], top[1] - b.h*s/2 - 4);
+      }
+    }
+    for(const t of g.targets){
+      if(!t.stage) continue;
+      const p = paceTargetPos(g, t), pv = g.previews[t.no], pr = g.prev[t.no];
+      if(g.showImg && pv && pv.canvas) drawTile({tile: pv.canvas}, {cx: p[0], cy: p[1], w: pv.w, h: pv.h, rot: pr && pr.ok ? pr.rot : paceRot(g), flip: g.flip}, s);
+      const [x, y] = toScreen(...p), r = Math.max(4, Math.min(14, 0.3*s));
+      ctx.strokeStyle = PACE_COLOR; ctx.lineWidth = 1.5; ctx.setLineDash(t.skip ? [2, 2] : []);
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
+      if(pr && pr.ok){ ctx.beginPath(); ctx.moveTo(x - r*0.6, y); ctx.lineTo(x + r*0.6, y); ctx.moveTo(x, y - r*0.6); ctx.lineTo(x, y + r*0.6); ctx.stroke(); }
+      if(state.settings.showLabels && s > 2){
+        ctx.font = `600 11px ${getFont("--font-mono")}`; ctx.fillStyle = PACE_COLOR; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+        ctx.fillText(String(Number(t.no) || t.no), x + r + 3, y - r);
+      }
+    }
+  }
+}
+
+/* ---------- session: save and restore everything that was opened and placed ---------- */
+const SESSION_KEY = "mdocStageMap.session";
+function sessionState(withStores){
+  const mont = state.focus;
+  const st = {app: "mdoc-stage-map", kind: "state", version: 1, savedAt: new Date().toISOString(),
+    source: data.server ? "server" : data.folder ? `folder:${data.folder.name}` : "files",
+    settings: {...state.settings, offset: {...state.settings.offset}}, view: {...state.view},
+    focus: mont && mont.doc ? {src: mont.doc.src, g: mont.g} : null,
+    layers: state.layers.filter(L => L.docs.every(d => d.src.kind !== "demo")).map(L => ({type: L.type, name: L.name, color: L.color, visible: L.visible, rot: L.rot, showPieces: L.showPieces, loadImages: L.loadImages, alignMode: L.alignMode, docs: L.docs.map(d => ({kind: d.src.kind, path: d.src.path}))})),
+    pace: PACE.map(g => ({kind: g.kind, path: g.path, visible: g.visible, showImg: g.showImg}))};
+  if(withStores) st.stores = {refined: REFINED, userCal: USERCAL, pace: PACESTORE, calibrations: CAL};
+  return st;
+}
+function stateMsg(t){ $("#stateStatus").textContent = t; setMsg(t); }
+function saveStateFile(){
+  const st = sessionState(true);
+  const blob = new Blob([JSON.stringify(st, null, 1)], {type: "application/json"});
+  const a = document.createElement("a"), d = new Date(), pad = n => String(n).padStart(2, "0");
+  a.href = URL.createObjectURL(blob);
+  a.download = `stage-map-state_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  stateMsg(`Saved ${st.layers.length} layer${st.layers.length === 1 ? "" : "s"} and ${st.pace.length} PACEtomo file${st.pace.length === 1 ? "" : "s"} to ${a.download}.`);
+}
+function saveSessionLocal(){
+  if(state.demo || (!state.layers.length && !PACE.length)) return;
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(sessionState(false))); } catch(e){}
+}
+async function readSrc(src){
+  if(src.kind === "server"){ if(!data.server) throw new Error("not connected to the server"); return readText("server", src.path); }
+  if(src.kind === "folder"){
+    if(!data.folder) throw new Error("choose the data folder first");
+    if(data.folder.files.has(src.path)) return data.folder.files.get(src.path).text();
+  }
+  const name = src.path.split("/").pop().toLowerCase();
+  if(data.folder){ const h = data.folder.byName.get(name) || []; if(h.length === 1) return data.folder.files.get(h[0]).text(); }
+  const f = data.extra.get(name); if(f) return f.text();
+  throw new Error(src.kind === "file" ? "select the file again or choose the data folder" : "not found");
+}
+function writeSettingsToInputs(){
+  const S = state.settings;
+  $("#isScale").value = S.isScale; $("#isRot").value = S.isRot; $("#isMirror").checked = S.isMirror;
+  $("#flipY").checked = S.flipY; $("#viewRot").value = S.viewRot; $("#gridDiam").value = S.gridDiam;
+  $("#showGrid").checked = S.showGrid; $("#showLabels").checked = S.showLabels; $("#showPieceNums").checked = S.showPieceNums;
+  $("#useRefined").checked = S.useRefined;
+}
+async function applyState(st){
+  if(!st || st.app !== "mdoc-stage-map" || st.kind !== "state") throw new Error("this is not a stage map state file");
+  if(st.stores){
+    REFINED = st.stores.refined || {}; saveRefined();
+    USERCAL = st.stores.userCal || {}; saveUserCal();
+    PACESTORE = st.stores.pace || {}; savePaceStore();
+    setCalibrations(st.stores.calibrations || null, true);
+  }
+  const keep = {...state.settings};
+  Object.assign(state.settings, st.settings || {}, {offset: {...keep.offset, ...((st.settings || {}).offset || {})}});
+  writeSettingsToInputs(); saveOffset(); showOffset();
+  clearAll();
+  const missing = [];
+  for(const sl of st.layers || []){
+    const docs = [];
+    for(const src of sl.docs){
+      try { const d = parseMdoc(await readSrc(src), src.path); d.src = {kind: src.kind, path: src.path}; docs.push(d); }
+      catch(e){ missing.push(`${src.path.split("/").pop()} (${e.message})`); }
+    }
+    if(!docs.length) continue;
+    const L = addLayer(sl.type, docs, sl.name);
+    Object.assign(L, {color: sl.color || L.color, visible: sl.visible !== false, rot: sl.rot ?? null, showPieces: !!sl.showPieces, alignMode: sl.alignMode || "auto", mergeable: true});
+    L.loadImages = !!sl.loadImages && canLoad(L);
+    buildLayer(L);
+  }
+  for(const p of st.pace || []){
+    try { const g = await openPace(p.kind, p.path, await readSrc(p)); g.visible = p.visible !== false; g.showImg = p.showImg !== false; }
+    catch(e){ missing.push(`${p.path.split("/").pop()} (${e.message})`); }
+  }
+  rebuildKeepFocus();
+  for(const L of state.layers) if(L.loadImages) startImages(L);
+  if(st.focus){
+    const m = state.layers.flatMap(L => L.montages || []).find(x => x.doc.src.kind === st.focus.src.kind && x.doc.src.path === st.focus.src.path && x.g === st.focus.g);
+    if(m){ setFocus(m); if(m.L.loadImages) ensureMontage(m.L, m); }
+  }
+  if(st.view && isFinite(st.view.s)) state.view = {...st.view};
+  renderLayers(); renderPace(); renderDataList(); render();
+  stateMsg(`Restored ${state.layers.length} layer${state.layers.length === 1 ? "" : "s"} and ${PACE.length} PACEtomo file${PACE.length === 1 ? "" : "s"}.` + (missing.length ? ` Not found: ${missing.slice(0, 4).join("; ")}${missing.length > 4 ? ` and ${missing.length - 4} more` : ""}.` : ""));
+}
+function showRestore(){
+  let has = false;
+  try { const s = JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); has = !!(s && ((s.layers && s.layers.length) || (s.pace && s.pace.length))); } catch(e){}
+  $("#stateRestore").hidden = !has;
+}
+
 /* ---------- layer list ---------- */
 function renderLayers(){
   const box = $("#layers");
@@ -1976,6 +2526,7 @@ function render(){
       if(state.settings.showLabels) labels.push({it, sx, sy, w, h, L});
     }
   }
+  if(PACE.length) drawPace();
   // labels
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for(const {it, sx, sy, w, h, L} of labels){
@@ -2162,7 +2713,9 @@ function showInspector(){
     ["Pixel × mag", it.extra.pxA > 0 && it.extra.mag > 0 ? `${(it.extra.pxA*it.extra.mag/1e4).toFixed(2)} µm (camera pixel, roughly constant per camera)` : "n/a"],
     ["Box rotation", `${it.rot.toFixed(2)}°`],
     ...((it.L.type === "exposure" || it.L.type === "tilt") ? [["IS → stage", (() => { const T = calMatrixFor(it.doc, it.sec); return T ? `${T.desc}: [${T.m.map(v => v.toFixed(3)).join(", ")}]` : "fallback settings (no calibration for this MagIndex/CameraIndex)"; })()]] : []),
-    ...(it.L.offsetApplied ? [["Atlas offset", `${state.settings.offset.x.toFixed(2)}, ${state.settings.offset.y.toFixed(2)} µm (included above)`]] : [])
+    ...(it.L.offsetApplied ? [["Atlas offset", `${state.settings.offset.x.toFixed(2)}, ${state.settings.offset.y.toFixed(2)} µm (included above)`]] : []),
+    ...(it.refined ? [["Position", it.refined.manual ? `placed by hand (${it.refined.date || ""})` : `refined by correlation, score ${it.refined.score != null ? Number(it.refined.score).toFixed(2) : "?"} (${it.refined.date || ""})`]] : []),
+    ...(it.pace ? [["PACEtomo", `${it.pace.g.name}, target ${it.pace.t.no}${it.pace.g.prev[it.pace.t.no] && it.pace.g.prev[it.pace.t.no].ok ? ", Preview matched in the View" : it.pace.g.anchored ? ", from the anchored View" : ", nominal stage position"}`]] : [])
   ];
   if(it.extra.pieces) rows.push(["Montage", `section ${it.extra.section}, ${it.extra.pieces} pieces of ${it.extra.pieceSize ? it.extra.pieceSize.join(" × ") + " px" : "?"}`]);
   if(it.extra.placement === "piece") rows.push(["Placement", "PieceCoordinates (no StagePosition in mdoc)"]);
@@ -2184,7 +2737,18 @@ function pos(e){ const r = cv.getBoundingClientRect(); return [e.clientX - r.lef
 cv.addEventListener("pointerdown", e => {
   cv.setPointerCapture(e.pointerId);
   const p = pos(e); pointers.set(e.pointerId, p);
-  if(pointers.size === 1){ drag = {p, vx: state.view.x, vy: state.view.y, moved: false}; cv.classList.add("dragging"); }
+  if(pointers.size === 1){
+    drag = {p, vx: state.view.x, vy: state.view.y, moved: false};
+    if(state.move && !state.calib){
+      const it = hitTest(...p), img = isImgItem(it) ? it : null;
+      if(img){ drag.item = img; drag.w0 = toWorld(...p); drag.members = groupMembers(img).map(m => ({m, x: m.cx, y: m.cy})); }
+      else {
+        const g = paceHit(...p);
+        if(g){ drag.pace = g; drag.w0 = toWorld(...p); drag.d0 = g.delta.slice(); drag.members = paceItems(g).map(m => ({m, x: m.cx, y: m.cy})); }
+      }
+    }
+    cv.classList.add("dragging");
+  }
   else if(pointers.size === 2){
     drag = null;
     const [a, b] = [...pointers.values()];
@@ -2205,7 +2769,12 @@ cv.addEventListener("pointermove", e => {
   if(drag){
     const dx = p[0]-drag.p[0], dy = p[1]-drag.p[1];
     if(Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
-    if(drag.moved){
+    if(drag.moved && (drag.item || drag.pace)){
+      const w = toWorld(...p), mx = w[0] - drag.w0[0], my = w[1] - drag.w0[1];
+      for(const o of drag.members){ o.m.cx = o.x + mx; o.m.cy = o.y + my; }
+      if(drag.pace) drag.pace.delta = [drag.d0[0] + mx, drag.d0[1] + my];
+      showTip(null); render();
+    } else if(drag.moved){
       const dw = screenDeltaToWorld(dx, dy);
       state.view.x = drag.vx - dw[0];
       state.view.y = drag.vy - dw[1];
@@ -2221,12 +2790,28 @@ cv.addEventListener("pointermove", e => {
 });
 function endPointer(e){
   const p = pos(e);
-  if(drag && !drag.moved && pointers.size === 1 && state.calib){ calibClick(p); }
+  if(drag && drag.moved && drag.item){
+    state.selected = drag.item; state.paceSel = null;
+    const n = drag.members.length;
+    commitManual(drag.members.map(o => o.m));
+    showInspector(); renderPace();
+    moveMsg(`Placed ${n > 1 ? `${n} images that share a stage position` : "the image"} by hand. Snap fine-tunes it; Reset undoes it.`);
+  }
+  else if(drag && drag.moved && drag.pace){
+    const g = drag.pace; state.paceSel = g; state.selected = null; showInspector();
+    if(g.rot == null){ g.rot = paceRot(g); }
+    savePace(g); rebuildKeepFocus();
+    g.status = `Moved by hand: offset ${g.delta[0].toFixed(2)}, ${g.delta[1].toFixed(2)} µm.${g.anchored ? "" : " Anchor to fine-tune it by correlation."}`; renderPace();
+    moveMsg(`${g.name}: moved the View and all its targets.`);
+  }
+  else if(drag && !drag.moved && pointers.size === 1 && state.calib){ calibClick(p); }
   else if(drag && !drag.moved && pointers.size === 1){
-    const it = hitTest(...p), sq = hitTest(...p, "square");
-    if(sq && sq.montage && (!state.focus || state.focus.key !== sq.montage.key)){ state.selected = sq; showInspector(); focusMontage(sq.montage); }
-    else if(it && it.L.type === "atlas"){ fullView(); }
-    else { state.selected = it; showInspector(); render(); }
+    const it = hitTest(...p), sq = hitTest(...p, "square"), pg = isImgItem(it) ? null : paceHit(...p);
+    state.paceSel = pg;
+    if(!state.move && !pg && sq && sq.montage && (!state.focus || state.focus.key !== sq.montage.key)){ state.selected = sq; showInspector(); focusMontage(sq.montage); }
+    else if(!state.move && !pg && it && it.L.type === "atlas"){ fullView(); }
+    else { state.selected = pg ? null : it; showInspector(); render(); }
+    renderPace();
   }
   pointers.delete(e.pointerId);
   if(pointers.size < 2) pinch = null;
@@ -2245,6 +2830,12 @@ cv.addEventListener("wheel", e => {
 }, {passive: false});
 window.addEventListener("keydown", e => {
   if(e.target.matches("input,textarea,select")) return;
+  if(e.key === "m" || e.key === "M"){ setMove(!state.move); return; }
+  if(state.move && (e.code === "BracketLeft" || e.code === "BracketRight")){
+    e.preventDefault();
+    rotateSelected((e.code === "BracketLeft" ? 1 : -1)*(e.shiftKey ? 5 : 0.5));
+    return;
+  }
   if(e.key === "f" || e.key === "F"){ fullView(); }
   if(e.key === "Escape"){ if(state.calib){ if(state.calib.pending){ state.calib.pending = null; renderCalPanel(); render(); } return; } fullView(); }
 });
@@ -2256,6 +2847,22 @@ $("#openFolder").addEventListener("click", chooseFolder);
 $("#fileInput").addEventListener("change", e => openFiles(e.target.files, pendingType));
 $("#folderInput").addEventListener("change", e => setDataFolder([...e.target.files].map(f => ({file: f, path: f.webkitRelativePath || f.name}))));
 $("#clearAll").addEventListener("click", clearAll);
+$("#moveBtn").addEventListener("click", () => setMove(!state.move));
+$("#snapBtn").addEventListener("click", snapSelected);
+$("#resetPosBtn").addEventListener("click", resetSelected);
+$("#paceOpen").addEventListener("click", () => { $("#tgtsInput").value = ""; $("#tgtsInput").click(); });
+$("#tgtsInput").addEventListener("change", e => openFiles(e.target.files, null));
+$("#stateSave").addEventListener("click", saveStateFile);
+$("#stateLoad").addEventListener("click", () => { $("#stateInput").value = ""; $("#stateInput").click(); });
+$("#stateInput").addEventListener("change", async e => {
+  const f = e.target.files[0]; if(!f) return;
+  try { await applyState(JSON.parse(await f.text())); } catch(err){ stateMsg(`Could not load ${f.name}: ${err.message}`); }
+});
+$("#stateRestore").addEventListener("click", async () => {
+  try { await applyState(JSON.parse(localStorage.getItem(SESSION_KEY) || "null")); } catch(err){ stateMsg(`Could not restore the last session: ${err.message}`); }
+});
+window.addEventListener("beforeunload", saveSessionLocal);
+document.addEventListener("visibilitychange", () => { if(document.visibilityState === "hidden") saveSessionLocal(); });
 $("#offAlign").addEventListener("click", alignOffset);
 $("#useRefined").addEventListener("change", e => { state.settings.useRefined = e.target.checked; rebuildKeepFocus(); });
 $("#refClear").addEventListener("click", () => { REFINED = {}; saveRefined(); rebuildKeepFocus(); setMsg("Cleared all refined positions."); });
@@ -2357,6 +2964,8 @@ loadSavedCalibrations();
 detectServer();
 state.demo = true;
 renderLayers();
+renderPace();
+showRestore();
 requestAnimationFrame(() => { resize(); fitView(); render(); });
 </script>
 </body>

@@ -39,10 +39,11 @@ except ImportError:
     np = None
 
 APP = "mdoc-stage-map"
-VERSION = "1.0"
+VERSION = "1.1"
 MRC_EXT = (".mrc", ".st", ".map", ".mrcs", ".ali", ".preali")
 CHUNK = 1 << 20          # 1 MiB per write when streaming a file
 LIST_LIMIT = 20000       # most mdoc files returned by one recursive listing
+TGTS_RE = re.compile(r"_tgts(_p\d+)?\.txt$", re.I)   # PACEtomo target files
 
 ROOTS = {}               # name -> absolute real path
 HTML_PATH = None
@@ -112,6 +113,10 @@ def read_binned_section(real, z, binf):
     bw, bh = nx // binf, ny // binf
     a = a[:bh * binf, :bw * binf].astype(np.float32).reshape(bh, binf, bw, binf).mean(axis=(1, 3))
     return a.astype("<f4").tobytes(), bw, bh
+
+
+def listed(name):
+    return name.lower().endswith(".mdoc") or bool(TGTS_RE.search(name))
 
 
 def has_mrc(real_mdoc):
@@ -266,11 +271,11 @@ class Handler(BaseHTTPRequestHandler):
                 seen.add(key)
                 dn[:] = sorted(d for d in dn if not d.startswith("."))
                 for f in sorted(fn):
-                    if f.lower().endswith(".mdoc"):
+                    if listed(f):
                         full = os.path.join(dp, f)
                         rel = os.path.relpath(dp, real).replace(os.sep, "/")
                         files.append({"name": f, "path": f"{api}/{os.path.relpath(full, real).replace(os.sep, '/')}",
-                                      "rel": "" if rel == "." else rel, "mrc": has_mrc(full)})
+                                      "rel": "" if rel == "." else rel, "mrc": f.lower().endswith(".mdoc") and has_mrc(full)})
                         if len(files) >= LIST_LIMIT:
                             truncated = True
                             break
@@ -283,8 +288,8 @@ class Handler(BaseHTTPRequestHandler):
                         continue
                     if e.is_dir():
                         dirs.append({"name": e.name, "path": f"{api}/{e.name}"})
-                    elif e.name.lower().endswith(".mdoc"):
-                        files.append({"name": e.name, "path": f"{api}/{e.name}", "rel": "", "mrc": has_mrc(e.path)})
+                    elif listed(e.name):
+                        files.append({"name": e.name, "path": f"{api}/{e.name}", "rel": "", "mrc": e.name.lower().endswith(".mdoc") and has_mrc(e.path)})
         return self.send_json({"path": api, "parent": parent, "dirs": dirs, "files": files, "truncated": truncated})
 
 

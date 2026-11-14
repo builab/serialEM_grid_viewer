@@ -52,7 +52,7 @@ SerialEMData/
     └── T_1_tgts.txt
 ```
 
-Start the service
+Start the remote server where the data is:
 
 ```bash
 git clone https://github.com/builab/serialEM_grid_viewer.git
@@ -60,17 +60,15 @@ cd serialEM_grid_viewer
 python3 mdoc_server.py /path/to/your/serialEM/data --port 8765
 ```
 
-Then open **http://localhost:8765** in Chrome, Edge or Firefox and press **Open…**.
-
-You can also open `index.html` directly from disk, without the server. You then pick files from your own computer, and you need to select each `.mdoc` together with its `.mrc` (or choose the data folder once) for the images to show.
-
-If the data is on a remote server, do port forwarding like Cryosparc on your local computer
+Do port forwarding like Cryosparc on your local computer
 
 ```bash
 ssh -N -f -L localhost:8765:localhost:8765 user@remote_server
 ```
 
 Then open **http://localhost:8765** in Chrome, Edge or Firefox on your local machine.
+
+Alternatively, if the data is on your local computer, then start on the local computer. Then open **http://localhost:8765** in browser.
 
 
 ## Opening data
@@ -79,7 +77,6 @@ Then open **http://localhost:8765** in Chrome, Edge or Firefox on your local mac
 
 - **Open…** opens `.mdoc` files of any type, and PACEtomo `_tgts.txt` files. The type (atlas, square map, exposure, tilt series) is detected from the mdoc. You can change it under a layer's **More**.
 - When the page is served by `mdoc_server.py`, Open, Save and Load browse the **server**, not your own computer. A "Pick from this computer instead" link remains in each dialog.
-- Without the server, **Choose data folder** lets the viewer find the `.mrc` next to each `.mdoc`. Files can also be dropped on the map.
 - The **Data** box shows the server, its shared folders and the folders the open files came from.
 - Each layer card shows its name, visibility, colour and **Show images**. Type, box rotation, piece alignment and sizes are under **More**.
 
@@ -210,7 +207,7 @@ Then open http://localhost:8765 on your own computer. Open and Save browse the w
 - **Server:** Python 3.7 or newer.
   - Optional: `numpy`. The server then shrinks each image piece before sending it, which is much faster over a network.
   - Optional: `ffmpeg` on the server machine, for `.mp4` movies. `--ffmpeg` points at a specific binary; the copy from the `imageio-ffmpeg` Python package is also found.
-- **Data:** SerialEM `.mdoc` files with their `.mrc` images. A tilt series may also be kept as `.st` (for example `TS_001.mrc.mdoc` with `TS_001.st`); either name is found. Little-endian MRC, modes 0, 1, 2, 6 and 12.
+- **Data:** SerialEM `.mdoc` files with their `.mrc` images. Little-endian MRC, modes 0, 1, 2, 6 and 12.
 
 ## License
 

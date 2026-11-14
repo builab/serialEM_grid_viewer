@@ -199,6 +199,9 @@ dialog.fpick::backdrop{background:rgba(10,16,20,.45)}
 .alignbar label{display:flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap}
 canvas.aligning{cursor:move}
 
+.credit{margin-left:auto;font-size:12px;color:var(--muted);white-space:nowrap}
+.credit a{color:var(--accent);text-decoration:none;font-weight:600}
+.credit a:hover{text-decoration:underline}
 details.settings>summary{cursor:pointer;font:600 11px/1.2 var(--font-body);text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
 details.settings h3{margin:14px 0 6px;font:600 12.5px/1.2 var(--font-body)}
 details.more{grid-column:1/-1}
@@ -226,6 +229,7 @@ details.more>.layer-ctl{padding:6px 0 0}
       <button class="btn" id="stateSave">Save session…</button>
       <button class="btn" id="stateLoad">Load session…</button>
     </div>
+    <div class="credit">Vibecoded by <a href="https://github.com/builab/serialEM_grid_viewer/" target="_blank" rel="noopener">BuiLab@McGill</a></div>
     <input type="file" id="fileInput" accept=".mdoc,.mrc,.st,.map,.mrcs,.ali,.txt" multiple hidden>
     <input type="file" id="tgtsInput" accept=".txt,.mdoc,.mrc" multiple hidden>
     <input type="file" id="stateInput" accept=".json,application/json" hidden>

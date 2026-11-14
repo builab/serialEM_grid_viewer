@@ -2550,9 +2550,9 @@ function drawPace(){
 // Uses the positions as aligned in the viewer. Frames are drawn on a canvas; the server's ffmpeg encodes them
 // (or, without it, the browser records the canvas in real time).
 const MV_KEY = "mdocStageMap.movie";
-const MV_DEF = {size: "1920x1080", fps: 30, zoom: 6, tAtlas: 3, tToSq: 4, tSq: 2, tToTg: 4, hold: 3, tToView: 3, tPick: 0.8, viewZoom: 1, tiltFps: 10, schematic: true, upright: true, level: true, turn: 0, first: "low",
+const MV_DEF = {size: "1920x1080", fps: 30, zoom: 6, tAtlas: 3, tToSq: 4, tSq: 2, tToTg: 4, hold: 3, tToView: 3, tPick: 0.8, viewZoom: 1, tiltAxis: true, tiltFps: 10, schematic: true, upright: true, level: true, turn: 0, first: "low",
   labels: [["Atlas", "Grid overview"], ["Square map", "Selecting the acquisition position"], ["Acquisition position", "Tilt-series target"], ["Tilt series", ""]],
-  pLabels: [["Atlas", "Grid overview"], ["Square map", "Selecting the area"], ["Target selection", ""], ["Tilt series", ""]]};
+  pLabels: [["Atlas", "Grid overview"], ["Square map", "Selecting the area"], ["Target selection", ""], ["Parallel Tilt Series Acquisition", ""]]};
 let mv = null;
 const mvEase = t => { t = Math.max(0, Math.min(1, t)); return t*t*(3 - 2*t); };
 const mvPt = (cam, x, y) => { const c = Math.cos(cam.f), sn = Math.sin(cam.f), dx = (x - cam.x)*cam.s, dy = ys()*(y - cam.y)*cam.s; return [cam.W/2 + dx*c + dy*sn, cam.H/2 - dx*sn + dy*c]; };
@@ -2562,6 +2562,7 @@ function mvCfg(){
   const c = {...MV_DEF, ...sv};
   const labs = (key) => MV_DEF[key].map((d, i) => Array.isArray(sv[key] && sv[key][i]) ? [String(sv[key][i][0] ?? d[0]), String(sv[key][i][1] ?? d[1])] : d.slice());
   c.labels = labs("labels"); c.pLabels = labs("pLabels");
+  if(c.pLabels[3][0] === "Tilt series") c.pLabels[3][0] = MV_DEF.pLabels[3][0];      // the earlier default
   return c;
 }
 function mvSaveCfg(){ const {start, low, high, zoom, tToTg, ...keep} = mv.cfg; try { localStorage.setItem(MV_KEY, JSON.stringify(keep)); } catch(e){} }
@@ -2939,7 +2940,8 @@ function mvForm(){
     ${stage.map((s, i) => `<div class="mvlab"><span>${i + 1}. ${s}</span><input type="text" data-lab="${i}:0" value="${esc(labs[i][0])}" placeholder="Title (empty = none)" aria-label="${s} title"><input type="text" data-lab="${i}:1" value="${esc(labs[i][1])}" placeholder="${subPh(i)}" aria-label="${s} subtitle"></div>`).join("")}
     <h4>Camera</h4>
     <div class="fields">
-      ${pace ? `<label class="field" title="1 = the View and all targets just fit. Lower shows more of the square map around them.">View zoom ×<input type="number" id="mvVZoom" min="0.2" max="5" step="0.1" value="${c.viewZoom}"></label>`
+      ${pace ? `<label class="field" title="1 = the View and all targets just fit. Lower shows more of the square map around them.">View zoom ×<input type="number" id="mvVZoom" min="0.2" max="5" step="0.1" value="${c.viewZoom}"></label>
+      <label class="check full" title="The stage X axis through target 1, about which the stage tilts"><input type="checkbox" id="mvAxis" ${c.tiltAxis ? "checked" : ""}> Show the tilt axis on the View</label>`
              : `<label class="field">Final zoom ×<input type="number" id="mvZoom" min="1" max="60" step="1" value="${c.zoom}"></label>`}
       <label class="field">Extra turn at start (°)<input type="number" id="mvTurn" step="90" value="${c.turn}"></label>
       <label class="check full"><input type="checkbox" id="mvLevel" ${c.level ? "checked" : ""}> Start with the atlas level</label>
@@ -2975,7 +2977,7 @@ function mvRead(){
   const labs = mv.kind === "pace" ? c.pLabels : c.labels;
   document.querySelectorAll("#mvSide [data-lab]").forEach(el => { const [i, j] = el.dataset.lab.split(":").map(Number); labs[i][j] = el.value; });
   Object.assign(c, {zoom: Math.max(1, n("#mvZoom", c.zoom)), hold: Math.max(0, n("#mvHold", c.hold)), upright: $("#mvUpright").checked, level: $("#mvLevel").checked, turn: n("#mvTurn", 0),
-    tAtlas: n("#mvTAtlas", 3), tToSq: n("#mvTToSq", 4), tSq: n("#mvTSq", 2), tToTg: n("#mvTToTg", c.tToTg), tToView: n("#mvTToV", c.tToView), viewZoom: Math.max(0.2, n("#mvVZoom", c.viewZoom)), tPick: Math.max(0.2, n("#mvTPick", c.tPick)), start: n("#mvStart", 0), tiltFps: Math.max(1, n("#mvTfps", 10)),
+    tAtlas: n("#mvTAtlas", 3), tToSq: n("#mvTToSq", 4), tSq: n("#mvTSq", 2), tToTg: n("#mvTToTg", c.tToTg), tToView: n("#mvTToV", c.tToView), viewZoom: Math.max(0.2, n("#mvVZoom", c.viewZoom)), tiltAxis: $("#mvAxis") ? $("#mvAxis").checked : c.tiltAxis, tPick: Math.max(0.2, n("#mvTPick", c.tPick)), start: n("#mvStart", 0), tiltFps: Math.max(1, n("#mvTfps", 10)),
     low: n("#mvLow", -60), high: n("#mvHigh", 60), first: $("#mvFirst").value, schematic: $("#mvSchem").checked, size: $("#mvSize").value, fps: Number($("#mvFps").value) || 30});
   if(c.low > c.high) [c.low, c.high] = [c.high, c.low];
   mvSaveCfg();
@@ -3210,6 +3212,22 @@ function mvPlanPace(B){
   const sl = $("#mvTime"); if(sl){ sl.max = total.toFixed(3); sl.step = (1/c.fps).toFixed(4); }
   const info = $("#mvInfo"); if(info) info.textContent = `${total.toFixed(1)} s · ${Math.round(total*c.fps)} frames · ${mv.tg.length} target${mv.tg.length === 1 ? "" : "s"}, ${n} with a tilt series · ${mv.seq.length} tilt steps${mv.seq.length ? ` (${mvSchemeText()})` : ""}`;
 }
+// the tilt axis: SerialEM tilts the stage about its X axis, so it is the stage-X line through target 1 (the tracking target)
+function mvAxis(g, cam, alpha, k){
+  if(!mv.cfg.tiltAxis || alpha <= 0 || !mv.tg.length) return;
+  const b = mv.tg[0].box, p = mvPt(cam, b.cx, b.cy), q = mvPt(cam, b.cx + 1, b.cy), L = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1;
+  let ux = (q[0] - p[0])/L, uy = (q[1] - p[1])/L;
+  if(ux < -1e-6 || (Math.abs(ux) < 1e-6 && uy > 0)){ ux = -ux; uy = -uy; }          // point right (or up) so the label reads left to right
+  const R = Math.hypot(cam.W, cam.H);
+  g.save(); g.globalAlpha = alpha; g.strokeStyle = "rgba(120,200,255,0.95)"; g.lineWidth = 3*k; g.setLineDash([18*k, 12*k]);
+  g.beginPath(); g.moveTo(p[0] - ux*R, p[1] - uy*R); g.lineTo(p[0] + ux*R, p[1] + uy*R); g.stroke(); g.setLineDash([]);
+  const d = Math.abs(ux) > 0.35 ? (cam.W*0.8 - p[0])/ux : (cam.H*0.22 - p[1])/uy, lx = p[0] + ux*d, ly = p[1] + uy*d, ang = Math.atan2(uy, ux);
+  g.translate(lx - uy*0, ly); g.rotate(ang);
+  g.font = `600 ${24*k}px ${getFont("--font-body") || "sans-serif"}`; g.textAlign = "center"; g.textBaseline = "middle";
+  const tw = g.measureText("Tilt axis").width;
+  mvRound(g, -tw/2 - 12*k, -46*k, tw + 24*k, 36*k, 9*k, "rgba(0,0,0,0.65)"); g.fillStyle = "rgb(120,200,255)"; g.fillText("Tilt axis", 0, -27*k);
+  g.restore();
+}
 function mvView(g, cam, alpha){ if(alpha <= 0) return; g.globalAlpha = alpha; mvTile(g, cam, mv.viewImg.img, mv.viewImg); g.globalAlpha = 1; }
 // a picked target: yellow box at the tilt-series footprint, a circle drawn around it, its number
 function mvMark(g, cam, x, prog, k, alpha){
@@ -3265,6 +3283,7 @@ function mvFramePace(t){
   }
   if(t < P.tG){
     const cm = P.camV; mvScene(g, cm, 1); mvView(g, cm, 1);
+    mvAxis(g, cm, mvEase((t - P.tF - 0.85*P.TP)/Math.max(0.3, 0.5*P.TP)), k);      // drawn once target 1 (on the axis) is picked
     let kk = 0;
     mv.tg.forEach((x, i) => { const pr = (t - P.tF - i*P.TP)/P.TP; if(pr > 0) kk = i + 1; mvMark(g, cm, x, Math.min(1.5, pr), k, 1); });
     mvTitle(g, k, L[2][0], kk ? pickSub(kk) : (L[2][1] || `${n} target${n === 1 ? "" : "s"}`), 1);
@@ -3273,7 +3292,7 @@ function mvFramePace(t){
   // from here on: the View with all targets marked, dimmed, and the tilt series in a grid
   if(!mv.bgEnd){
     mv.bgEnd = document.createElement("canvas"); mv.bgEnd.width = P.MW; mv.bgEnd.height = P.MH;
-    const bg = mv.bgEnd.getContext("2d"); mvScene(bg, P.camV, 1); mvView(bg, P.camV, 1); mv.tg.forEach(x => mvMark(bg, P.camV, x, 1.5, k, 1));
+    const bg = mv.bgEnd.getContext("2d"); mvScene(bg, P.camV, 1); mvView(bg, P.camV, 1); mvAxis(bg, P.camV, 1, k); mv.tg.forEach(x => mvMark(bg, P.camV, x, 1.5, k, 1));
   }
   const G = P.grid, sub3 = L[3][1] || `${ts.length} target${ts.length === 1 ? "" : "s"} in parallel${mv.seq.length ? ` · ${mvSchemeText()}` : ""}`;
   g.globalAlpha = 1; g.fillStyle = "#000"; g.fillRect(0, 0, P.MW, P.MH);

@@ -1985,7 +1985,7 @@ function startAlign(spec){
     const g = spec.g;
     Object.assign(a, {g, start: g.delta.slice(), rot0: g.rot, rotSet0: g.rotSet, name: g.root || g.name, onto: "its square map",
       note: `Moves the View, all ${g.targets.length} targets and their tilt series together.`});
-    state.paceSel = g; state.selected = null;
+    state.paceSel = g; state.paceTgt = null; state.selected = null;
     ghost = {pace: g, items: new Set(paceItems(g).map(refKey))};
   } else {
     const mem = groupMembers(spec.it), keys = new Set(mem.map(refKey));
@@ -2093,8 +2093,11 @@ function openCtxMenu(p){
     const off = state.settings.offset;
     const zoomItem = x => { state.selected = x; state.paceSel = null; showInspector(); setFocus(null); animateTo(viewFor([x], 0.5)); };
     const pick = x => { state.selected = x; state.paceSel = null; };
+    const tg = isImgItem(it) ? null : paceTargetHit(...p);
+    if(tg) groups.push({hd: `Target ${tg.t.no} · ${tg.g.root || tg.g.name}`, items: [
+      ["Zoom to this target", () => { state.paceSel = tg.g; state.paceTgt = tg; state.selected = null; showInspector(); setFocus(null); const q = paceTargetPos(tg.g, tg.t), pv = tg.g.previews[tg.t.no], d = pv ? Math.max(pv.w, pv.h) : 1; animateTo(viewFor([{cx: q[0], cy: q[1], w: d, h: d, rot: 0}], 0.4)); renderPace(); }]]});
     if(pg) groups.push({hd: `View · ${pg.root || pg.name}`, items: [
-      ["Zoom to this View", () => { state.paceSel = pg; state.selected = null; showInspector(); setFocus(null); animateTo(viewFor([paceViewBox(pg)], 0.5)); renderPace(); }],
+      ["Zoom to this View", () => { state.paceSel = pg; state.paceTgt = null; state.selected = null; showInspector(); setFocus(null); animateTo(viewFor([paceViewBox(pg)], 0.5)); renderPace(); }],
       ["Align by dragging…", () => startAlign({kind: "pace", g: pg})],
       ["Align by correlation (shift only)", () => anchorPace(pg, false), !pg.view || pg.busy],
       [`Align by correlation (shift + rotation ±${ROT_SPAN}°)`, () => anchorPace(pg, true), !pg.view || pg.busy],
@@ -2201,7 +2204,7 @@ async function openPace(kind, path, text){
   const fnum = v => (v == null || v === "" || !isFinite(Number(v))) ? NaN : Number(v);
   const targets = t.targets.map(x => {
     const sx = fnum(x.stageX), sy = fnum(x.stageY);
-    return {no: x.no, tgtfile: x.tgtfile || null, tsfile: x.tsfile || null, viewfile: x.viewfile || null, SSX: fnum(x.SSX), SSY: fnum(x.SSY),
+    return {raw: x, no: x.no, tgtfile: x.tgtfile || null, tsfile: x.tsfile || null, viewfile: x.viewfile || null, SSX: fnum(x.SSX), SSY: fnum(x.SSY),
       stage: isFinite(sx) && isFinite(sy) ? [sx, sy] : null, skip: /^true$/i.test(x.skip || "")};
   });
   if(!targets.length) throw new Error(`${file} has no _tgt entries`);
@@ -2294,6 +2297,15 @@ function paceHit(sx, sy){
   const [x, y] = toWorld(sx, sy);
   for(let i = PACE.length - 1; i >= 0; i--){ const g = PACE[i]; if(g.visible && g.view && insideBox(x, y, paceViewBox(g))) return g; }
   return null;
+}
+// the target whose circle (as last drawn) is under the pointer; the smallest circle wins
+function paceTargetHit(sx, sy){
+  let best = null;
+  for(const g of PACE){
+    if(!g.visible) continue;
+    for(const t of g.targets){ const h = t.hit; if(h && Math.hypot(sx - h.x, sy - h.y) <= h.r + 3 && (!best || h.r < best.t.hit.r)) best = {g, t}; }
+  }
+  return best;
 }
 function zoomPace(g){
   const pts = g.targets.filter(t => t.stage).map(t => { const p = paceTargetPos(g, t); return {cx: p[0], cy: p[1], w: 0.5, h: 0.5, rot: 0}; });
@@ -2402,10 +2414,10 @@ $("#layers").addEventListener("click", e => {
   const el = e.target.closest("[data-pact]"), row = e.target.closest("[data-pace]");
   const g = row && PACE.find(x => x.id === Number(row.dataset.pace)); if(!el || !g) return;
   const a = el.dataset.pact;
-  if(a === "zoom"){ state.paceSel = g; state.selected = null; zoomPace(g); showInspector(); renderPace(); }
+  if(a === "zoom"){ state.paceSel = g; state.paceTgt = null; state.selected = null; zoomPace(g); showInspector(); renderPace(); }
   else if(a === "ts") openPaceTS(g);
   else if(a === "remove"){
-    PACE.splice(PACE.indexOf(g), 1); if(state.paceSel === g) state.paceSel = null;
+    PACE.splice(PACE.indexOf(g), 1); if(state.paceSel === g){ state.paceSel = null; state.paceTgt = null; }
     if(state.align && state.align.g === g) finishAlign(false);
     state.layers = state.layers.filter(L => L.paceKey !== g.key);
     if(state.selected && !state.layers.includes(state.selected.L)) state.selected = null;
@@ -2448,13 +2460,15 @@ function drawPace(){
     const tsAt = new Map();
     for(const L of state.layers) if(L.visible) for(const it of L.items) if(it.pace && it.pace.g === g) tsAt.set(it.pace.t, it);
     for(const t of g.targets){
+      t.hit = null;
       if(!t.stage) continue;
       const p = paceTargetPos(g, t), pv = g.previews[t.no], pr = g.prev[t.no], ts = tsAt.get(t);
       if(g.showImg && pv && pv.canvas){ if(ghostPace(g)) ghostOn(); drawTile({tile: pv.canvas}, {cx: p[0], cy: p[1], w: pv.w, h: pv.h, rot: pr && pr.ok ? pr.rot : paceRot(g), flip: g.flip}, s); ghostOff(); }
       // the circle goes around the image at the target: half its diagonal, never smaller than a visible dot
       const diag = Math.max(pv && pv.canvas ? Math.hypot(pv.w, pv.h) : 0, ts ? Math.hypot(ts.w, ts.h) : 0);
       const [x, y] = toScreen(...p), r = Math.max(5, diag > 0 ? diag/2*s + 2 : Math.min(14, 0.3*s));
-      ctx.strokeStyle = g.color; ctx.lineWidth = 1.5; ctx.setLineDash(t.skip ? [2, 2] : []);
+      t.hit = {x, y, r};
+      ctx.strokeStyle = g.color; ctx.lineWidth = state.paceTgt && state.paceTgt.t === t ? 3 : 1.5; ctx.setLineDash(t.skip ? [2, 2] : []);
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
       if(pr && pr.ok){ const c = Math.min(6, r*0.6); ctx.beginPath(); ctx.moveTo(x - c, y); ctx.lineTo(x + c, y); ctx.moveTo(x, y - c); ctx.lineTo(x, y + c); ctx.stroke(); }
       if(state.settings.showLabels && s > 2){
@@ -2951,16 +2965,33 @@ function inspHtml(title, sub, main, more, sec, doc){
   const kv = o => `<table class="kv">${Object.entries(o).map(([k,v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table>`;
   $("#inspBody").innerHTML = tbl(main) +
     `<details class="more" ${state.inspMore ? "open" : ""} id="inspMore"><summary>More</summary>${more.length ? tbl(more) : ""}
-       ${sec ? `<details><summary>Section keys (${Object.keys(sec.kv).length})</summary>${kv(sec.kv)}</details>` : ""}
+       ${sec ? `<details><summary>${doc ? "Section keys" : "Target file entries"} (${Object.keys(sec.kv).length})</summary>${kv(sec.kv)}</details>` : ""}
        ${doc ? `<details><summary>File header (${Object.keys(doc.header).length})</summary>${kv(doc.header)}</details>` : ""}</details>`;
   $("#inspMore").addEventListener("toggle", e => { state.inspMore = e.target.open; });
 }
 function showInspector(){
-  const it = state.selected, pg = !it && state.paceSel && state.paceSel.view ? state.paceSel : null, el = $("#inspector");
-  $("#banner").style.visibility = it || pg ? "hidden" : "";
-  if(!it && !pg){ el.classList.remove("open"); return; }
+  const it = state.selected, el = $("#inspector");
+  const tg = !it && state.paceTgt && state.paceTgt.g === state.paceSel && PACE.includes(state.paceTgt.g) ? state.paceTgt : null;
+  const pg = !it && !tg && state.paceSel && state.paceSel.view ? state.paceSel : null;
+  $("#banner").style.visibility = it || pg || tg ? "hidden" : "";
+  if(!it && !pg && !tg){ el.classList.remove("open"); return; }
   el.classList.add("open");
   const off = state.settings.offset, offTxt = `${off.x.toFixed(2)}, ${off.y.toFixed(2)} µm (included above)`;
+  if(tg){
+    const {g, t} = tg, q = paceTargetPos(g, t), pv = g.previews[t.no], pr = g.prev[t.no];
+    const ts = state.layers.flatMap(L => L.items).find(x => x.pace && x.pace.g === g && x.pace.t === t), ti = ts && tiltInfo(ts.doc);
+    const main = [["Target", `${t.no} of ${g.targets.length}${t.skip ? " (skip = True)" : ""}`], ["Target file", g.path.split("/").pop()],
+      ["Position X", `${q[0].toFixed(3)} µm`], ["Position Y", `${q[1].toFixed(3)} µm`],
+      ["Stage X, Y in file", `${t.stage[0].toFixed(3)}, ${t.stage[1].toFixed(3)} µm`],
+      ...(isFinite(t.SSX) && isFinite(t.SSY) ? [["Specimen shift", `${t.SSX.toFixed(3)}, ${t.SSY.toFixed(3)} µm`]] : []),
+      ["Group offset", `${g.delta[0].toFixed(2)}, ${g.delta[1].toFixed(2)} µm${off.on && (off.x || off.y) ? ` + atlas offset ${off.x.toFixed(2)}, ${off.y.toFixed(2)} µm` : ""}`],
+      ["Preview", !t.tgtfile ? "none named in the target file" : !pv ? `${t.tgtfile} (not found)` : `${t.tgtfile} · ${fmtLen(pv.w)} × ${fmtLen(pv.h)} · ${+(pv.px*1e4).toPrecision(4)} Å/px`],
+      ...(pr ? [["Preview in View", pr.ok ? `matched: moved ${pr.d[0].toFixed(2)}, ${pr.d[1].toFixed(2)} µm, score ${pr.score.toFixed(2)}` : `not matched (score ${Number(pr.score).toFixed(2)})`]] : []),
+      ["Tilt series", !t.tsfile ? "none named in the target file" : !ts ? `${t.tsfile} (not acquired yet, or not opened)` : t.tsfile],
+      ...(ti ? [["Angle from", `${ti.from.toFixed(1)}°`], ["Angle to", `${ti.to.toFixed(1)}°`], ["Increment", `${ti.inc.toFixed(1)}° (${ti.n} tilts)`]] : []),
+      ...(ts ? shiftRows(ts.sec, ts.doc) : [])];
+    return inspHtml(`${g.root || g.name} · target ${t.no}`, "PACEtomo target", main, [], {kv: t.raw || {}}, null);
+  }
   if(pg){
     const b = paceViewBox(pg), v = pg.view, sz = imageSize(v.doc, v.sec);
     const main = [["File", pg.viewfile], ["Center X", `${b.cx.toFixed(3)} µm`], ["Center Y", `${b.cy.toFixed(3)} µm`],
@@ -2992,7 +3023,7 @@ function showInspector(){
   if(it.pace) more.push(["PACEtomo", `${it.pace.g.name}, target ${it.pace.t.no}${it.pace.g.prev[it.pace.t.no] && it.pace.g.prev[it.pace.t.no].ok ? ", Preview matched in the View" : it.pace.g.anchored ? ", from the aligned View" : ", nominal stage position"}`]);
   inspHtml(it.montage ? (e.pieces ? it.montage.name : it.montage.name + " · piece " + it.sec.index) : it.label, `[${it.sec.kind} = ${it.sec.index}] · ${TYPES[it.L.type].label}`, main, more, it.sec, it.doc);
 }
-$("#inspClose").addEventListener("click", () => { state.selected = null; state.paceSel = null; showInspector(); renderPace(); render(); });
+$("#inspClose").addEventListener("click", () => { state.selected = null; state.paceSel = null; state.paceTgt = null; showInspector(); renderPace(); render(); });
 
 /* ---------- interaction ---------- */
 const pointers = new Map();
@@ -3054,8 +3085,8 @@ function endPointer(e){
   if(drag && drag.moved && drag.button === 2) rightPanAt = performance.now();
   if(drag && (drag.align || drag.alignPan || drag.button !== 0)){ /* aligning, panning or a right-click: no selection */ }
   else if(drag && !drag.moved && pointers.size === 1){
-    const it = hitTest(...p), sq = hitTest(...p, "square"), pg = isImgItem(it) ? null : paceHit(...p);
-    state.paceSel = pg;
+    const it = hitTest(...p), sq = hitTest(...p, "square"), tg = isImgItem(it) ? null : paceTargetHit(...p), pg = tg ? tg.g : isImgItem(it) ? null : paceHit(...p);
+    state.paceSel = pg; state.paceTgt = tg;
     if(!pg && !isImgItem(it) && sq && sq.montage && (!state.focus || state.focus.key !== sq.montage.key)){ state.selected = sq; showInspector(); focusMontage(sq.montage); }
     else if(!pg && it && it.L.type === "atlas"){ fullView(); }
     else { state.selected = pg ? null : it; showInspector(); render(); }

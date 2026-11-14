@@ -156,6 +156,49 @@ main.over .drop{display:grid}
 details{margin-top:10px}
 summary{cursor:pointer;color:var(--muted);font-size:12px}
 
+/* server file dialog */
+dialog.fpick{width:min(640px,calc(100% - 24px));max-height:calc(100% - 48px);padding:0;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);box-shadow:0 18px 60px rgba(0,0,0,.3)}
+dialog.fpick::backdrop{background:rgba(10,16,20,.45)}
+.fp{display:flex;flex-direction:column;gap:8px;padding:12px 14px;max-height:calc(100vh - 60px)}
+.fp h3{margin:0;font:600 14.5px/1.3 var(--font-display)}
+.fp .fp-sub{font-size:12px;color:var(--muted);margin-top:-4px}
+.fp-crumbs{display:flex;flex-wrap:wrap;gap:2px;align-items:center;font:12px var(--font-mono)}
+.fp-crumbs button{border:none;background:none;padding:2px 4px;border-radius:4px;cursor:pointer;color:var(--accent);font:inherit}
+.fp-crumbs button:hover{background:var(--bg)}
+.fp-crumbs span{color:var(--muted)}
+.fp-bar{display:grid;grid-template-columns:1fr auto auto;gap:6px}
+.fp input[type=text],.fp input[type=search]{background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:5px 7px;font:12.5px var(--font-mono);width:100%;min-width:0}
+.fp-list{border:1px solid var(--line);border-radius:7px;background:var(--bg);overflow:auto;min-height:220px;max-height:52vh}
+.fp-row{display:grid;grid-template-columns:18px 1fr auto;gap:8px;align-items:center;padding:5px 9px;border-bottom:1px solid var(--line);font:12.5px var(--font-mono);cursor:pointer;user-select:none}
+.fp-row:last-child{border-bottom:none}
+.fp-row:hover{background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.fp-row.sel{background:color-mix(in srgb,var(--accent) 18%,transparent)}
+.fp-row.dir{font-family:var(--font-body);font-weight:500}
+.fp-row .ic{color:var(--muted);text-align:center}
+.fp-row small{color:var(--muted);font-size:11px}
+.fp-empty{padding:16px;color:var(--muted);font-size:12.5px}
+.fp-name{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:center;font-size:12.5px}
+.fp-foot{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.fp-foot .msg{flex:1;min-width:120px;font-size:12px;color:var(--muted)}
+.fp-foot .msg.err{color:var(--warn)}
+.linkbtn{border:none;background:none;padding:0;color:var(--accent);cursor:pointer;font-size:12px;text-decoration:underline}
+
+/* right-click menu and the align bar */
+.ctxmenu{position:absolute;z-index:5;min-width:230px;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 34px rgba(0,0,0,.22);padding:4px;font-size:13px}
+.ctxmenu .hd{font:600 11px/1.2 var(--font-body);text-transform:uppercase;letter-spacing:.07em;color:var(--muted);padding:7px 9px 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:320px}
+.ctxmenu button{display:block;width:100%;text-align:left;border:none;background:none;padding:6px 9px;border-radius:5px;cursor:pointer}
+.ctxmenu button:hover,.ctxmenu button:focus-visible{background:var(--accent);color:var(--accent-ink);outline:none}
+.ctxmenu button:disabled{opacity:.45;cursor:default;background:none;color:inherit}
+.ctxmenu hr{border:none;border-top:1px solid var(--line);margin:4px 2px}
+.alignbar{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:4;display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;width:max-content;background:var(--panel);border:1.5px solid var(--accent);border-radius:10px;padding:7px 8px 7px 14px;box-shadow:0 8px 28px rgba(0,0,0,.18);font-size:12.5px;max-width:calc(100% - 24px)}
+.alignbar b{font-weight:600}
+.alignbar .txt{flex:1 1 380px;max-width:520px;min-width:0;line-height:1.35}
+.alignbar .k{color:var(--muted);font-size:11.5px}
+.alignbar .d{font:12px var(--font-mono);font-variant-numeric:tabular-nums;color:var(--accent);white-space:nowrap}
+.alignbar .row{display:flex;gap:6px}
+.alignbar label{display:flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap}
+canvas.aligning{cursor:move}
+
 @media (max-width:760px){
   .app{grid-template-columns:1fr;grid-template-rows:auto 62vh auto;height:auto;min-height:100%}
   aside{border-right:none;border-top:1px solid var(--line);order:3}
@@ -210,7 +253,7 @@ summary{cursor:pointer;color:var(--muted);font-size:12px}
     <section class="sec">
       <h2>PACEtomo targets <span class="act"><button class="btn small" id="paceOpen">Open _tgts.txt</button></span></h2>
       <div id="paceList"></div>
-      <p class="hint">One <code>_tgts.txt</code> per area. Its <code>tgt_001_view.mrc</code> is matched to the square map, and the stage offset found there moves every target of the file. Target files can also be opened from the Data list. When picking files by hand, select the <code>_tgts.txt</code> with its <code>_view.mrc</code> and <code>tgt_00N.mrc</code> files.</p>
+      <p class="hint">Open one <code>_tgts.txt</code> per area: its View image, target Previews and every tilt series acquired so far open with it, as one group. Right-click the View on the map to align the whole group onto the square map by dragging, or anchor it by correlation. When running without the server, select the <code>_tgts.txt</code> together with its <code>.mrc</code> and <code>.mdoc</code> files.</p>
     </section>
 
     <section class="sec">
@@ -222,7 +265,7 @@ summary{cursor:pointer;color:var(--muted);font-size:12px}
         <button class="btn small" id="offAlign">Align on this square</button>
         <button class="btn small" id="offReset">Reset to 0</button>
       </div>
-      <p class="hint" id="offStatus">Shifts everything taken after the atlas so it lines up with the atlas. Click into a square map, then press Align. Press again to refine. Saved in this browser.</p>
+      <p class="hint" id="offStatus">Shifts everything taken after the atlas so it lines up with the atlas. Right-click a square map and choose <b>Align square to atlas…</b> to drag it into place, or click into a square map and press Align for correlation. Saved in this browser.</p>
     </section>
 
     <section class="sec">
@@ -279,6 +322,8 @@ summary{cursor:pointer;color:var(--muted);font-size:12px}
     <div class="tip" id="tip"></div>
     <div class="calpanel" id="calPanel" hidden aria-live="polite"></div>
     <div class="calpanel" id="refPanel" hidden aria-live="polite"></div>
+    <div class="ctxmenu" id="ctxMenu" role="menu" hidden></div>
+    <div class="alignbar" id="alignBar" hidden aria-live="polite"></div>
     <div class="inspector" id="inspector">
       <div class="insp-head"><h3 id="inspTitle"></h3><button class="x" id="inspClose" aria-label="Close details">×</button></div>
       <div class="insp-body" id="inspBody"></div>
@@ -286,6 +331,7 @@ summary{cursor:pointer;color:var(--muted);font-size:12px}
     <div class="status"><span id="cursor">X — Y —</span><span id="zoom"></span><span class="r" id="msg"></span></div>
   </main>
 </div>
+<dialog class="fpick" id="fpick" aria-labelledby="fpTitle"><form method="dialog" class="fp" id="fpForm"></form></dialog>
 
 <script>
 "use strict";
@@ -677,17 +723,34 @@ async function openFiles(fileList, forced){
   for(const f of [...mrcs, ...files]) data.extra.set(f.name.toLowerCase(), f);
   if(tgts.length){
     if(state.demo) clearAll();
-    // mdocs of the View and target images belong to the target file, not to a layer of their own
-    const own = new Set();
+    // mdocs of the View and target images belong to the target file, not to a layer of their own;
+    // its tilt series go into one layer that belongs to the target file
+    const own = new Set(), tsOf = new Map();
     for(const f of tgts){
       try {
         const text = await f.text();
-        for(const t of parseTgts(text).targets) for(const n of [t.viewfile, t.tgtfile]) if(n) own.add((n + ".mdoc").toLowerCase());
+        const g = await openPace("file", f.webkitRelativePath || f.name, text);
+        for(const t of parseTgts(text).targets){
+          for(const n of [t.viewfile, t.tgtfile]) if(n) own.add((n + ".mdoc").toLowerCase());
+          if(t.tsfile) tsOf.set((t.tsfile + ".mdoc").toLowerCase(), g);
+        }
         own.add(f.name.replace(TGTS_RE, "_tgt_001_view.mrc.mdoc").toLowerCase());
-        await openPace("file", f.webkitRelativePath || f.name, text);
       } catch(e){ setMsg(`Could not read ${f.name}: ${e.message}`); }
     }
     files = files.filter(f => !own.has(f.name.toLowerCase()));
+    const byGroup = new Map();
+    for(const f of files){ const g = tsOf.get(f.name.toLowerCase()); if(g){ if(!byGroup.has(g)) byGroup.set(g, []); byGroup.get(g).push(f); } }
+    for(const [g, fs] of byGroup){
+      const docs = [];
+      for(const f of fs){ try { const d = parseMdoc(await f.text(), f.webkitRelativePath || f.name); d.src = {kind: "file", path: f.webkitRelativePath || f.name}; docs.push(d); } catch(e){} }
+      if(!docs.length) continue;
+      const ex = state.layers.find(L => L.paceKey === g.key);
+      if(ex){ ex.docs.push(...docs); buildLayer(ex); } else { const L = addLayer("tilt", docs, `${g.root || g.name} · tilt series`); L.paceKey = g.key; }
+      attachImages(docs);
+      g.tsNote = `${docs.length} of ${new Set(g.targets.filter(t => t.tsfile).map(t => t.tsfile)).size} tilt series selected with the target file.`;
+    }
+    files = files.filter(f => !tsOf.has(f.name.toLowerCase()));
+    if(byGroup.size){ rebuildKeepFocus(); renderLayers(); }
     if(!files.length){ renderPace(); render(); return; }
   }
   if(!files.length){
@@ -835,8 +898,11 @@ async function readText(kind, path){
   if(!r.ok){ let m = await r.text(); try { m = JSON.parse(m).error || m; } catch(e){} throw new Error(`${m} (HTTP ${r.status})`); }
   return r.text();
 }
-async function openPaths(list){
+// forcedType: a layer type, null for auto-detect, undefined to use the Data panel's "Open as" choice
+// opts.layer: put the docs into a new layer with this name (and opts.paceKey) instead of merging
+async function openPaths(list, forcedType, opts){
   if(!list.length) return;
+  opts = opts || {};
   if(state.demo) clearAll();
   const tg = list.filter(x => TGTS_RE.test(x.path));
   list = list.filter(x => !TGTS_RE.test(x.path));
@@ -853,14 +919,21 @@ async function openPaths(list){
   }
   if(!docs.length) return;
   dataError("");
-  const forced = data.openType === "auto" ? null : data.openType;
+  const forced = forcedType !== undefined ? forcedType : data.openType === "auto" ? null : data.openType;
   const hadItems = state.layers.some(L => L.items.length);
-  loadDocs(docs, forced, true);
+  if(opts.layer){
+    const ex = opts.paceKey && state.layers.find(L => L.paceKey === opts.paceKey);
+    if(ex){ ex.docs.push(...docs); buildLayer(ex); if(ex.loadImages) startImages(ex); }
+    else { const L = addLayer(forced || "tilt", docs, opts.layer); if(opts.paceKey) L.paceKey = opts.paceKey; L.mergeable = false; }
+  }
+  else loadDocs(docs, forced, true);
   setMsg(docs.length === 1 ? `Opened ${baseName(docs[0].name)}.` : `Opened ${docs.length} mdoc files.`);
   renderLayers(); renderDataList();
+  if(opts.quiet){ render(); return docs; }
   if(!hadItems) fitView(); 
   else if(docs.length === 1) { const its = state.layers.flatMap(L => L.items.filter(it => it.doc === docs[0])); if(its.length) animateTo(viewFor(its)); }
   render();
+  return docs;
 }
 function zoomToDoc(kind, path){
   const pg = PACE.find(g => g.key === `${kind}:${path}`);
@@ -879,6 +952,7 @@ async function detectServer(){
     const j = await r.json();
     if(j.app !== "mdoc-stage-map") return;
     data.server = j;
+    $("#openFolder").textContent = "Browse server folder";
     if(state.demo) clearAll();
     renderData();
     srvBrowse(j.start || "");
@@ -897,6 +971,138 @@ async function srvBrowse(path){
 function srvGo(path){
   if(/\.mdoc$/i.test(path)) openPaths([{kind: "server", path}]);
   else srvBrowse(path);
+}
+
+/* ---------- server file dialog: when served by mdoc_server.py, Open and Save browse the server, not this computer ---------- */
+const PICK_KEY = "mdocStageMap.pickDirs";
+let pickDirs = {};
+try { pickDirs = JSON.parse(localStorage.getItem(PICK_KEY) || "{}") || {}; } catch(e){ pickDirs = {}; }
+const joinApi = (dir, name) => dir ? `${dir}/${name}` : name;
+const parentApi = p => p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
+function defaultPickDir(purpose){
+  if(pickDirs[purpose] != null) return pickDirs[purpose];
+  const d = state.layers.flatMap(L => L.docs).find(d => d.src.kind === "server");
+  if(d) return parentApi(d.src.path);
+  const g = PACE.find(g => g.kind === "server"); if(g) return g.dir.replace(/\/$/, "");
+  return data.srvPath || (data.server && data.server.start) || "";
+}
+async function srvSave(path, obj, overwrite){
+  const r = await fetch(`api/save?path=${encodeURIComponent(path)}&overwrite=${overwrite ? 1 : 0}`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(obj, null, 1)});
+  let j = {}; try { j = await r.json(); } catch(e){}
+  if(r.status === 409) return {exists: true};
+  if(!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
+// opts: {purpose, mode: "open" | "save" | "folder", title, sub, ext, multi, name, save(path, overwrite), local}
+// resolves to {paths} (open), {path} (save), {dir} (folder), {local: true} (use this computer instead) or null (cancelled)
+function serverPick(opts){
+  return new Promise(resolve => {
+    const dlg = $("#fpick"), form = $("#fpForm"), mode = opts.mode || "open";
+    const st = {dir: defaultPickDir(opts.purpose), entries: null, sel: [], filter: "", overwrite: null, busy: false};
+    let done = false;
+    const finish = v => {
+      if(done) return; done = true;
+      if(v && !v.local){ pickDirs[opts.purpose] = st.dir; try { localStorage.setItem(PICK_KEY, JSON.stringify(pickDirs)); } catch(e){} }
+      dlg.removeEventListener("close", onClose);
+      if(dlg.open) dlg.close();
+      resolve(v);
+    };
+    const onClose = () => finish(null);
+    const ok = mode === "save" ? "Save" : mode === "folder" ? "Use this folder" : "Open";
+    form.innerHTML = `<h3 id="fpTitle">${esc(opts.title || ok)}</h3>
+      <div class="fp-sub">${esc(opts.sub || "")} Browsing <b>${esc(location.host)}</b>.</div>
+      <div class="fp-crumbs" id="fpCrumbs"></div>
+      <div class="fp-bar"><input type="text" id="fpPath" spellcheck="false" aria-label="Folder path" placeholder="Type a folder (absolute, or root/…) and press Enter"><button class="btn small" type="button" id="fpUp">Up</button><button class="btn small" type="button" id="fpRefresh">Refresh</button></div>
+      <input type="search" id="fpFilter" placeholder="Filter this folder" aria-label="Filter">
+      <div class="fp-list" id="fpList" role="listbox" ${opts.multi ? 'aria-multiselectable="true"' : ""}></div>
+      ${mode === "save" ? `<label class="fp-name">File name<input type="text" id="fpName" spellcheck="false" value="${esc(opts.name || "")}"></label>` : ""}
+      <div class="fp-foot"><span class="msg" id="fpMsg"></span>
+        ${opts.local ? `<button type="button" class="linkbtn" id="fpLocal">${esc(opts.local)}</button>` : ""}
+        <button class="btn small" type="button" id="fpCancel">Cancel</button>
+        <button class="btn small primary" type="button" id="fpOk">${ok}</button></div>`;
+    const msg = (t, err) => { const el = $("#fpMsg"); el.textContent = t || ""; el.classList.toggle("err", !!err); };
+    const crumbs = () => {
+      const parts = st.dir ? st.dir.split("/") : [];
+      let h = `<button type="button" data-crumb="">Shared folders</button>`;
+      parts.forEach((p, i) => { h += `<span>/</span><button type="button" data-crumb="${esc(parts.slice(0, i + 1).join("/"))}">${esc(p)}</button>`; });
+      $("#fpCrumbs").innerHTML = h;
+      const root = parts[0] && data.server.roots.find(r => r.name === parts[0]);
+      $("#fpPath").value = root ? root.path + (parts.length > 1 ? (data.server.sep || "/") + parts.slice(1).join(data.server.sep || "/") : "") : "";
+    };
+    const list = () => {
+      const box = $("#fpList"), e = st.entries; if(!e) return;
+      const f = st.filter.toLowerCase(), m = x => !f || x.name.toLowerCase().includes(f);
+      const dirs = e.dirs.filter(m), files = mode === "folder" ? [] : e.files.filter(m);
+      let h = dirs.map(d => `<div class="fp-row dir" data-dir="${esc(d.path)}" role="option"><span class="ic">▸</span><span>${esc(d.name)}/</span><span></span></div>`).join("");
+      h += files.map(x => `<div class="fp-row ${st.sel.includes(x.path) ? "sel" : ""}" data-file="${esc(x.path)}" data-name="${esc(x.name)}" role="option" aria-selected="${st.sel.includes(x.path)}"><span class="ic">${st.sel.includes(x.path) ? "✓" : ""}</span><span>${esc(x.name)}${x.rel ? ` <small>${esc(x.rel)}</small>` : ""}</span><small>${x.mrc ? "+ image" : ""}</small></div>`).join("");
+      if(!h) h = `<div class="fp-empty">${st.dir === "" ? "No shared folders." : mode === "folder" ? "No subfolders. Use this folder, or go up." : "Nothing here matches. Open a subfolder or go up."}</div>`;
+      if(opts.multi && files.length > 1) h += `<div class="fp-empty"><button type="button" class="linkbtn" id="fpAll">Select all ${files.length} listed</button></div>`;
+      box.innerHTML = h; box.scrollTop = 0;
+    };
+    const load = async dir => {
+      msg("Loading…");
+      try {
+        const r = await fetch(`api/list?path=${encodeURIComponent(dir)}&ext=${encodeURIComponent(opts.ext || "")}`, {cache: "no-store"});
+        const j = await r.json(); if(!r.ok) throw new Error(j.error || r.status);
+        if(j.path !== st.dir) st.sel = [];
+        st.dir = j.path; st.entries = j; st.overwrite = null; crumbs(); list();
+        msg(st.dir === "" && mode !== "open" ? "Open one of the shared folders first." : "");
+      } catch(e){ msg(e.message, true); if(!st.entries && dir !== ""){ st.dir = ""; load(""); } }
+    };
+    const confirm = async () => {
+      if(st.busy) return;
+      if(mode === "folder"){ if(!st.dir) return msg("Open a folder first.", true); return finish({dir: st.dir}); }
+      if(mode === "open"){ if(!st.sel.length) return msg(opts.multi ? "Select one or more files." : "Select a file.", true); return finish({paths: st.sel.slice()}); }
+      let name = $("#fpName").value.trim();
+      if(!name) return msg("Type a file name.", true);
+      if(/[\\/]/.test(name)) return msg("Type only a name; pick the folder above.", true);
+      if(!/\.json$/i.test(name)){ name += ".json"; $("#fpName").value = name; }
+      if(!st.dir) return msg("Open the folder to save in first.", true);
+      const path = joinApi(st.dir, name);
+      st.busy = true; $("#fpOk").disabled = true; msg("Saving…");
+      try {
+        const r = await opts.save(path, st.overwrite === path);
+        if(r.exists){ st.overwrite = path; msg(`${name} already exists. Press Save again to replace it.`, true); return; }
+        finish({path: r.path || path});
+      } catch(e){ msg(`Could not save: ${e.message}`, true); }
+      finally { st.busy = false; const b = $("#fpOk"); if(b) b.disabled = false; }
+    };
+    form.onsubmit = e => e.preventDefault();
+    form.onclick = e => {
+      const t = e.target;
+      const c = t.closest("[data-crumb]"); if(c) return load(c.dataset.crumb);
+      const d = t.closest("[data-dir]"); if(d) return load(d.dataset.dir);
+      const fr = t.closest("[data-file]");
+      if(fr){
+        const p = fr.dataset.file;
+        if(mode === "save"){ $("#fpName").value = fr.dataset.name; st.sel = [p]; }
+        else if(opts.multi && (e.ctrlKey || e.metaKey || e.shiftKey || st.sel.length)){ st.sel = st.sel.includes(p) ? st.sel.filter(x => x !== p) : [...st.sel, p]; }
+        else st.sel = [p];
+        list(); msg(st.sel.length > 1 ? `${st.sel.length} files selected.` : ""); return;
+      }
+      if(t.id === "fpAll"){ const f = st.filter.toLowerCase(); st.sel = st.entries.files.filter(x => !f || x.name.toLowerCase().includes(f)).map(x => x.path); list(); msg(`${st.sel.length} files selected.`); return; }
+      if(t.id === "fpUp") return load(st.dir ? parentApi(st.dir) : "");
+      if(t.id === "fpRefresh") return load(st.dir);
+      if(t.id === "fpCancel") return finish(null);
+      if(t.id === "fpLocal") return finish({local: true});
+      if(t.id === "fpOk") return confirm();
+    };
+    form.ondblclick = e => {
+      const fr = e.target.closest("[data-file]");
+      if(fr && mode === "open"){ if(!st.sel.includes(fr.dataset.file)) st.sel = opts.multi ? [...st.sel, fr.dataset.file] : [fr.dataset.file]; confirm(); }
+      else if(fr && mode === "save") confirm();
+    };
+    form.onkeydown = e => {
+      if(e.key !== "Enter") return;
+      if(e.target.id === "fpPath"){ e.preventDefault(); const v = e.target.value.trim(); if(v) load(v); }
+      else if(e.target.id === "fpName" || e.target.id === "fpFilter"){ e.preventDefault(); if(e.target.id === "fpName") confirm(); }
+    };
+    form.oninput = e => { if(e.target.id === "fpFilter"){ st.filter = e.target.value; list(); } };
+    dlg.addEventListener("close", onClose);
+    dlg.showModal();
+    crumbs(); load(st.dir);
+    setTimeout(() => { const n = $("#fpName"); if(n){ n.focus(); n.select(); } else $("#fpFilter").focus(); }, 0);
+  });
 }
 
 /* ---------- MRC images ---------- */
@@ -1839,9 +2045,9 @@ function renderRegion(tiles, R, res, mask){
   for(let i = 0; i < W*H; i++) out[i] = mask ? (d[i*4] > 250 ? 1 : 0) : d[i*4];
   return {out, W, H};
 }
-async function alignOffset(){
+async function alignOffset(mont0){
   const say = t => { $("#offStatus").textContent = t; setMsg(t); };
-  const focus = state.focus;
+  const focus = mont0 || state.focus;
   if(!focus || !focus.L || focus.L.type !== "square") return say("Click into a square map first, then press Align.");
   const atlasL = state.layers.find(L => L.type === "atlas" && L.visible);
   if(!atlasL) return say("Open the atlas first: the offset is measured against it.");
@@ -1995,6 +2201,178 @@ function resetSelected(){
   else moveMsg("Select an image first.");
 }
 
+/* ---------- see-through drawing of whatever is being moved ---------- */
+const GHOST_ALPHA = 0.5;
+let ghost = null;          // {offset: true} = every layer above the atlas; {pace: g}; {items: Set of refKeys}
+let ghostDiff = false;     // draw the moving images in difference mode instead of at 50%: aligned features go dark
+try { ghostDiff = localStorage.getItem("mdocStageMap.ghostDiff") === "1"; } catch(e){}
+const ghostLayer = L => !!ghost && !!ghost.offset && L.type !== "atlas";
+const ghostItem = it => !!ghost && ((!!ghost.offset && it.L.type !== "atlas") || (!!ghost.items && ghost.items.has(refKey(it))));
+const ghostPace = g => !!ghost && (!!ghost.offset || ghost.pace === g);
+function ghostOn(){ if(ghostDiff) ctx.globalCompositeOperation = "difference"; else ctx.globalAlpha = GHOST_ALPHA; }
+function ghostOff(){ ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; }
+function setGhostDiff(on){ ghostDiff = on; try { localStorage.setItem("mdocStageMap.ghostDiff", on ? "1" : "0"); } catch(e){} const c = $("#abDiff"); if(c) c.checked = on; render(); }
+
+/* ---------- right-click alignment: a square map onto the atlas, a PACEtomo View group onto its square map, one image ---------- */
+// state.align = {kind: "offset" | "pace" | "item", name, onto, applied: [dx, dy] µm, ...}
+let spaceDown = false;
+function startAlign(spec){
+  if(state.align) finishAlign(true);
+  if(state.calib) endCalib();
+  if(state.move) setMove(false);
+  hideCtxMenu();
+  const a = {kind: spec.kind, applied: [0, 0]};
+  if(spec.kind === "offset"){
+    const o = state.settings.offset;
+    if(!o.on){ o.on = true; saveOffset(); showOffset(); rebuildKeepFocus(); }
+    Object.assign(a, {start: {x: o.x, y: o.y}, m: spec.m, name: spec.m.name, onto: "the atlas",
+      note: "Moves every square map, exposure, tilt series and PACEtomo area together (one atlas offset)."});
+    ghost = {offset: true};
+  } else if(spec.kind === "pace"){
+    const g = spec.g;
+    Object.assign(a, {g, start: g.delta.slice(), rot0: g.rot, rotSet0: g.rotSet, name: g.root || g.name, onto: "its square map",
+      note: `Moves the View, all ${g.targets.length} targets and their tilt series together.`});
+    state.paceSel = g; state.selected = null;
+    ghost = {pace: g, items: new Set(paceItems(g).map(refKey))};
+  } else {
+    const mem = groupMembers(spec.it), keys = new Set(mem.map(refKey));
+    Object.assign(a, {it: spec.it, keys, ref0: [...keys].map(k => [k, REFINED[k]]), name: spec.it.label, onto: "the square map",
+      note: mem.length > 1 ? `Moves ${mem.length} images that share this stage position.` : ""});
+    state.selected = spec.it; state.paceSel = null;
+    ghost = {items: keys};
+  }
+  state.align = a;
+  cv.classList.add("aligning");
+  showInspector(); renderPace(); renderAlignBar(); render();
+  setMsg(`Aligning ${a.name}: drag anywhere on the map. Enter keeps it, Esc cancels.`);
+}
+function shiftAlign(dx, dy){
+  const a = state.align; if(!a || (!dx && !dy)) return;
+  a.applied[0] += dx; a.applied[1] += dy;
+  if(a.kind === "offset"){
+    const o = state.settings.offset; o.x += dx; o.y += dy;       // PACEtomo areas read the offset when drawn
+    for(const L of state.layers){
+      if(L.type === "atlas") continue;
+      for(const it of L.items){ it.cx += dx; it.cy += dy; }
+      for(const m of L.montages || []) for(const t of m.tiles){ t.cx += dx; t.cy += dy; }
+    }
+  } else if(a.kind === "pace"){
+    a.g.delta = [a.g.delta[0] + dx, a.g.delta[1] + dy];
+    for(const it of paceItems(a.g)){ it.cx += dx; it.cy += dy; }
+  } else {
+    for(const L of state.layers) if(isImgItem({L})) for(const it of L.items) if(a.keys.has(refKey(it))){ it.cx += dx; it.cy += dy; }
+  }
+  updateAlignDelta(); render();
+}
+function rotateAlign(d){
+  const a = state.align; if(!a || a.kind === "offset") return;
+  if(a.kind === "item"){
+    const it = state.layers.flatMap(L => L.items).find(x => isImgItem(x) && refKey(x) === refKey(a.it));
+    if(!it) return; state.selected = it;
+  }
+  rotateSelected(d);
+  if(a.kind === "pace") ghost = {pace: a.g, items: new Set(paceItems(a.g).map(refKey))};
+}
+function finishAlign(keep){
+  const a = state.align; if(!a) return;
+  state.align = null; ghost = null; spaceDown = false;
+  cv.classList.remove("aligning"); $("#alignBar").hidden = true;
+  const moved = Math.hypot(a.applied[0], a.applied[1]) > 1e-9, dtxt = `${a.applied[0].toFixed(2)}, ${a.applied[1].toFixed(2)} µm`;
+  if(a.kind === "offset"){
+    const o = state.settings.offset;
+    if(keep && moved){ setOffset(o.x, o.y, `Offset ${o.x.toFixed(2)}, ${o.y.toFixed(2)} µm, set by dragging ${a.name} onto the atlas (${new Date().toLocaleString()}).`); setMsg(`Atlas offset changed by ${dtxt}.`); }
+    else { o.x = a.start.x; o.y = a.start.y; showOffset(); rebuildKeepFocus(); setMsg(keep ? "Nothing moved." : "Alignment cancelled."); }
+  } else if(a.kind === "pace"){
+    const g = a.g;
+    if(keep){
+      if(moved){ if(g.rot == null) g.rot = paceRot(g); g.status = `Aligned by hand: offset ${g.delta[0].toFixed(2)}, ${g.delta[1].toFixed(2)} µm.${g.anchored ? "" : " Anchor fine-tunes it by correlation."}`; }
+      savePace(g); setMsg(moved ? `${a.name}: View group moved by ${dtxt}.` : "Nothing moved.");
+    } else { g.delta = a.start; g.rot = a.rot0; g.rotSet = a.rotSet0; savePace(g); setMsg("Alignment cancelled."); }
+    rebuildKeepFocus(); renderPace();
+  } else {
+    if(keep && moved){
+      const mem = state.layers.flatMap(L => isImgItem({L}) ? L.items.filter(it => a.keys.has(refKey(it))) : []);
+      commitManual(mem); setMsg(`Placed ${mem.length > 1 ? `${mem.length} images` : a.name} by hand (moved ${dtxt}).`);
+    } else if(!keep){
+      for(const [k, v] of a.ref0){ if(v) REFINED[k] = v; else delete REFINED[k]; }
+      saveRefined(); rebuildKeepFocus(); setMsg("Alignment cancelled.");
+    }
+  }
+  render();
+}
+async function alignAuto(){
+  const a = state.align; if(!a) return;
+  finishAlign(true);
+  if(a.kind === "offset") return alignOffset(a.m);
+  if(a.kind === "pace") return anchorPace(a.g);
+  const it = state.layers.flatMap(L => L.items).find(x => isImgItem(x) && refKey(x) === refKey(a.it));
+  if(it){ state.selected = it; state.paceSel = null; return snapSelected(); }
+}
+function renderAlignBar(){
+  const a = state.align, bar = $("#alignBar");
+  if(!a){ bar.hidden = true; return; }
+  bar.hidden = false;
+  bar.innerHTML = `<div class="txt"><b>Aligning ${esc(a.name)}</b> onto ${esc(a.onto)}${a.note ? `<div class="k">${esc(a.note)}</div>` : ""}
+      <div class="k">Drag anywhere · arrows nudge (Shift ×10) · ${a.kind !== "offset" ? "[ ] rotate · " : ""}Space-drag or middle-drag pans · D difference view</div></div>
+    <span class="d" id="abDelta"></span>
+    <label title="Show the moving images in difference mode: features that line up go dark"><input type="checkbox" id="abDiff" ${ghostDiff ? "checked" : ""}> Difference</label>
+    <div class="row"><button class="btn small" id="abAuto" title="Fine-tune by correlation">Auto-refine</button><button class="btn small" id="abCancel" title="Esc">Cancel</button><button class="btn small primary" id="abDone" title="Enter">Done</button></div>`;
+  updateAlignDelta();
+}
+function updateAlignDelta(){ const a = state.align, el = $("#abDelta"); if(a && el) el.textContent = `Δ ${a.applied[0] >= 0 ? "+" : ""}${a.applied[0].toFixed(2)}, ${a.applied[1] >= 0 ? "+" : ""}${a.applied[1].toFixed(2)} µm`; }
+$("#alignBar").addEventListener("click", e => {
+  const id = e.target.id;
+  if(id === "abDone") finishAlign(true);
+  else if(id === "abCancel") finishAlign(false);
+  else if(id === "abAuto") alignAuto();
+});
+$("#alignBar").addEventListener("change", e => { if(e.target.id === "abDiff") setGhostDiff(e.target.checked); });
+
+/* right-click menu on the map */
+function hideCtxMenu(){ const m = $("#ctxMenu"); if(!m.hidden){ m.hidden = true; m.innerHTML = ""; } }
+function openCtxMenu(p){
+  const groups = [];
+  if(state.align){
+    groups.push({hd: `Aligning ${state.align.name}`, items: [["Done (Enter)", () => finishAlign(true)], ["Cancel (Esc)", () => finishAlign(false)], ["Auto-refine by correlation", alignAuto]]});
+  } else {
+    const it = hitTest(...p), pg = paceHit(...p), sq = hitTest(...p, "square");
+    const hasAtlas = state.layers.some(L => L.type === "atlas" && L.visible), noAtlas = "Open the atlas first";
+    const off = state.settings.offset;
+    if(pg) groups.push({hd: `PACEtomo · ${pg.root || pg.name}`, items: [
+      ["Align View group to square map…", () => startAlign({kind: "pace", g: pg})],
+      ["Anchor on square map (correlation)", () => anchorPace(pg), !pg.view || pg.busy],
+      ["Refine targets in View (correlation)", () => refinePace(pg), !pg.view || pg.busy],
+      ["Find new tilt series", () => openPaceTS(pg)],
+      ["Reset group alignment", () => resetPace(pg), pg.busy]]});
+    if(isImgItem(it)) groups.push({hd: `${TYPES[it.L.type].label} · ${it.label}`, items: [
+      ["Move onto square map…", () => startAlign({kind: "item", it})],
+      ["Snap to square map (correlation)", () => { state.selected = it; state.paceSel = null; snapSelected(); }],
+      ["Reset position", () => { state.selected = it; state.paceSel = null; resetSelected(); }, !REFINED[refKey(it)]]]});
+    if(sq && sq.montage) groups.push({hd: `Square map · ${sq.montage.name}`, items: [
+      ["Align square to atlas…", () => startAlign({kind: "offset", m: sq.montage}), !hasAtlas, noAtlas],
+      ["Align square to atlas (correlation)", () => alignOffset(sq.montage), !hasAtlas, noAtlas],
+      ["Reset atlas offset", () => setOffset(0, 0, "Offset reset to 0."), !(off.x || off.y)],
+      ["Zoom to this square", () => { state.selected = sq; showInspector(); focusMontage(sq.montage); }]]});
+    if(!groups.length) groups.push({hd: "", items: [["Full view", fullView]]});
+  }
+  const menu = $("#ctxMenu"), acts = [];
+  menu.innerHTML = groups.map((g, gi) => (gi ? "<hr>" : "") + (g.hd ? `<div class="hd" title="${esc(g.hd)}">${esc(g.hd)}</div>` : "") +
+    g.items.map(([label, fn, dis, why]) => { acts.push(fn); return `<button type="button" role="menuitem" data-ci="${acts.length - 1}" ${dis ? `disabled title="${esc(why || "")}"` : ""}>${esc(label)}</button>`; }).join("")).join("");
+  menu.onclick = e => { const b = e.target.closest("[data-ci]"); if(!b || b.disabled) return; hideCtxMenu(); acts[Number(b.dataset.ci)](); };
+  menu.hidden = false;
+  const mr = $("#main").getBoundingClientRect(), r = menu.getBoundingClientRect();
+  menu.style.left = Math.max(4, Math.min(p[0], mr.width - r.width - 4)) + "px";
+  menu.style.top = Math.max(4, Math.min(p[1], mr.height - r.height - 4)) + "px";
+  const first = menu.querySelector("button:not(:disabled)"); if(first) first.focus({preventScroll: true});
+}
+let rightPanAt = 0;      // a right-drag that panned the map should not open the menu when the button is released
+document.addEventListener("pointerdown", e => { if(!e.target.closest("#ctxMenu")) hideCtxMenu(); }, true);
+$("#ctxMenu").addEventListener("keydown", e => {
+  const bs = [...$("#ctxMenu").querySelectorAll("button:not(:disabled)")], i = bs.indexOf(document.activeElement);
+  if(e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); hideCtxMenu(); cv.focus(); }
+  else if(e.key === "ArrowDown" || e.key === "ArrowUp"){ e.preventDefault(); e.stopPropagation(); const n = bs[(i + (e.key === "ArrowDown" ? 1 : bs.length - 1)) % bs.length]; if(n) n.focus(); }
+});
+
 /* ---------- Method 2: PACEtomo _tgts.txt: anchor the View image, then place every target ---------- */
 const TGTS_RE = /_tgts(_p\d+)?\.txt$/i;
 const PACE_KEY = "mdocStageMap.pace", PACE_COLOR = "#c2185b";
@@ -2073,8 +2451,45 @@ async function openPace(kind, path, text){
   if(missing) g.err = `${missing} target${missing === 1 ? "" : "s"} without stageX/stageY are not shown.`;
   PACE.push(g);
   renderPace(); rebuildKeepFocus();
-  loadPaceView(g);
+  loadPaceView(g).then(() => loadPacePreviews(g));
+  if(kind !== "file") openPaceGroup(g);
   return g;
+}
+// lower-case names of the mdoc files next to the target file, or null when that cannot be listed
+async function paceSiblings(g){
+  try {
+    if(g.kind === "server"){
+      const r = await fetch(`api/list?path=${encodeURIComponent(g.dir.replace(/\/$/, ""))}&ext=mdoc`, {cache: "no-store"});
+      if(!r.ok) return null;
+      return new Set((await r.json()).files.map(f => f.name.toLowerCase()));
+    }
+    if(g.kind === "folder" && data.folder) return new Set([...data.folder.files.keys()].filter(p => p.startsWith(g.dir) && !p.slice(g.dir.length).includes("/")).map(p => p.slice(g.dir.length).toLowerCase()));
+  } catch(e){}
+  return null;
+}
+// open every tilt series the target file names that exists so far, as one layer belonging to the group
+async function openPaceGroup(g, say){
+  const names = [...new Set(g.targets.filter(t => t.tsfile).map(t => t.tsfile + ".mdoc"))];
+  if(!names.length){ if(say){ g.status = "No tsfile names in this target file."; renderPace(); } return; }
+  const have = await paceSiblings(g), opened = openedPaths();
+  const isOpen = n => opened.has(`${g.kind}:${g.dir + n}`);
+  const todo = names.filter(n => !isOpen(n) && (!have || have.has(n.toLowerCase())));
+  if(todo.length) await openPaths(todo.map(n => ({kind: g.kind, path: g.dir + n})), "tilt", {layer: `${g.root || g.name} · tilt series`, paceKey: g.key, quiet: true});
+  const now = openedPaths(), n = names.filter(x => now.has(`${g.kind}:${g.dir + x}`)).length;
+  g.tsNote = `${n} of ${names.length} tilt series found${n < names.length ? " (the others are not acquired yet, or are elsewhere)" : ""}.`;
+  if(PACE.includes(g)){ rebuildKeepFocus(); renderPace(); }
+}
+// the tgt_00N.mrc Preview images, drawn at their targets
+async function loadPacePreviews(g){
+  for(const t of g.targets){
+    if(!PACE.includes(g)) return;
+    if(!t.tgtfile || !t.stage || (g.previews[t.no] && g.previews[t.no].canvas)) continue;
+    try {
+      const pv = g.previews[t.no] || await imageDoc(g.kind, g.dir, t.tgtfile);
+      pv.canvas = (await imageAt(pv.doc, pv.sec, Math.max(pv.px, Math.max(pv.w, pv.h)/600))).canvas;
+      g.previews[t.no] = pv; scheduleRender();
+    } catch(e){ /* not acquired yet, or not selected with the target file */ }
+  }
 }
 async function loadPaceView(g){
   try {
@@ -2182,9 +2597,8 @@ function resetPace(g){
 function openPaceTS(g){
   const names = g.targets.filter(t => t.tsfile).map(t => t.tsfile + ".mdoc");
   if(!names.length){ g.status = "No tsfile names in this target file."; renderPace(); return; }
-  if(g.kind === "file"){ g.status = `Select the tilt series mdoc files (${names.slice(0, 2).join(", ")}…) with Open tilt series.`; renderPace(); return; }
-  const prev = data.openType; data.openType = "tilt";
-  openPaths(names.map(n => ({kind: g.kind, path: g.dir + n}))).finally(() => { data.openType = prev; });
+  if(g.kind === "file"){ g.status = `Select the tilt series mdoc files (${names.slice(0, 2).join(", ")}…) together with the _tgts.txt, or run the viewer from mdoc_server.py.`; renderPace(); return; }
+  openPaceGroup(g, true).then(() => loadPacePreviews(g));
 }
 function renderPace(){
   const box = $("#paceList"); if(!box) return;
@@ -2210,10 +2624,11 @@ function renderPace(){
         <div class="prow">
           <button class="btn small" data-pact="anchor" ${g.busy || !g.view ? "disabled" : ""}>${g.anchored ? "Re-anchor" : "Anchor on square map"}</button>
           <button class="btn small" data-pact="refine" ${g.busy || !g.view ? "disabled" : ""}>Refine targets in View</button>
-          <button class="btn small" data-pact="ts">Open tilt series</button>
+          <button class="btn small" data-pact="ts" title="Looks again for tilt series acquired since the file was opened">Find new tilt series</button>
+          <button class="btn small" data-pact="align" title="Or right-click the View on the map">Align by dragging</button>
           <button class="btn small" data-pact="reset" ${g.busy ? "disabled" : ""}>Reset</button>
         </div>
-        <div class="limg">${placed} of ${g.targets.filter(t => t.tsfile).length} tilt series placed from this file.</div>
+        <div class="limg">${g.tsNote ? esc(g.tsNote) + " " : ""}${placed} placed at their targets.</div>
       </div></div>`;
   }).join("");
 }
@@ -2225,8 +2640,15 @@ $("#paceList").addEventListener("click", e => {
   else if(a === "anchor") anchorPace(g);
   else if(a === "refine") refinePace(g);
   else if(a === "ts") openPaceTS(g);
+  else if(a === "align") startAlign({kind: "pace", g});
   else if(a === "reset") resetPace(g);
-  else if(a === "remove"){ PACE.splice(PACE.indexOf(g), 1); if(state.paceSel === g) state.paceSel = null; rebuildKeepFocus(); renderPace(); renderDataList(); }
+  else if(a === "remove"){
+    PACE.splice(PACE.indexOf(g), 1); if(state.paceSel === g) state.paceSel = null;
+    if(state.align && state.align.g === g) finishAlign(false);
+    state.layers = state.layers.filter(L => L.paceKey !== g.key);
+    if(state.selected && !state.layers.includes(state.selected.L)){ state.selected = null; showInspector(); }
+    rebuildKeepFocus(); renderPace(); renderDataList();
+  }
 });
 $("#paceList").addEventListener("change", e => {
   const el = e.target, row = el.closest("[data-pace]"), g = row && PACE.find(x => x.id === Number(row.dataset.pace)); if(!g) return;
@@ -2240,7 +2662,7 @@ function drawPace(){
     const selected = state.paceSel === g;
     if(g.view){
       const b = paceViewBox(g);
-      if(g.showImg && g.view.canvas) drawTile({tile: g.view.canvas}, b, s);
+      if(g.showImg && g.view.canvas){ if(ghostPace(g)) ghostOn(); drawTile({tile: g.view.canvas}, b, s); ghostOff(); }
       const [x, y] = toScreen(b.cx, b.cy);
       ctx.save(); ctx.translate(x, y); ctx.rotate(canvasAngle(b.rot));
       ctx.strokeStyle = PACE_COLOR; ctx.lineWidth = selected ? 2.5 : 1.4; ctx.setLineDash(g.anchored ? [] : [6, 4]);
@@ -2253,7 +2675,7 @@ function drawPace(){
     for(const t of g.targets){
       if(!t.stage) continue;
       const p = paceTargetPos(g, t), pv = g.previews[t.no], pr = g.prev[t.no];
-      if(g.showImg && pv && pv.canvas) drawTile({tile: pv.canvas}, {cx: p[0], cy: p[1], w: pv.w, h: pv.h, rot: pr && pr.ok ? pr.rot : paceRot(g), flip: g.flip}, s);
+      if(g.showImg && pv && pv.canvas){ if(ghostPace(g)) ghostOn(); drawTile({tile: pv.canvas}, {cx: p[0], cy: p[1], w: pv.w, h: pv.h, rot: pr && pr.ok ? pr.rot : paceRot(g), flip: g.flip}, s); ghostOff(); }
       const [x, y] = toScreen(...p), r = Math.max(4, Math.min(14, 0.3*s));
       ctx.strokeStyle = PACE_COLOR; ctx.lineWidth = 1.5; ctx.setLineDash(t.skip ? [2, 2] : []);
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
@@ -2274,18 +2696,43 @@ function sessionState(withStores){
     source: data.server ? "server" : data.folder ? `folder:${data.folder.name}` : "files",
     settings: {...state.settings, offset: {...state.settings.offset}}, view: {...state.view},
     focus: mont && mont.doc ? {src: mont.doc.src, g: mont.g} : null,
-    layers: state.layers.filter(L => L.docs.every(d => d.src.kind !== "demo")).map(L => ({type: L.type, name: L.name, color: L.color, visible: L.visible, rot: L.rot, showPieces: L.showPieces, loadImages: L.loadImages, alignMode: L.alignMode, docs: L.docs.map(d => ({kind: d.src.kind, path: d.src.path}))})),
+    layers: state.layers.filter(L => L.docs.every(d => d.src.kind !== "demo")).map(L => ({type: L.type, name: L.name, color: L.color, visible: L.visible, rot: L.rot, showPieces: L.showPieces, loadImages: L.loadImages, alignMode: L.alignMode, paceKey: L.paceKey || undefined, docs: L.docs.map(d => ({kind: d.src.kind, path: d.src.path}))})),
     pace: PACE.map(g => ({kind: g.kind, path: g.path, visible: g.visible, showImg: g.showImg}))};
   if(withStores) st.stores = {refined: REFINED, userCal: USERCAL, pace: PACESTORE, calibrations: CAL};
   return st;
 }
 function stateMsg(t){ $("#stateStatus").textContent = t; setMsg(t); }
+function stateFileName(){ const d = new Date(), pad = n => String(n).padStart(2, "0"); return `stage-map-state_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}.json`; }
+function stateSummary(st){ return `${st.layers.length} layer${st.layers.length === 1 ? "" : "s"} and ${st.pace.length} PACEtomo file${st.pace.length === 1 ? "" : "s"}`; }
+async function saveState(){
+  if(!data.server) return saveStateFile();
+  if(!data.server.write){ saveStateFile(); stateMsg($("#stateStatus").textContent + " (The server is read-only, so the file was downloaded to this computer.)"); return; }
+  let st = null;
+  const r = await serverPick({purpose: "state", mode: "save", ext: "json", name: stateFileName(), title: "Save state on the server",
+    sub: "Saves the open files, view, offsets, placed positions and PACEtomo anchors.", local: "Download to this computer instead",
+    save: (path, overwrite) => srvSave(path, st = sessionState(true), overwrite)});
+  if(!r) return;
+  if(r.local) return saveStateFile();
+  stateMsg(`Saved ${stateSummary(st)} to ${r.path} on the server.`);
+}
+async function loadState(){
+  if(data.server){
+    const r = await serverPick({purpose: "state", mode: "open", ext: "json", title: "Load state from the server", sub: "Pick a saved stage-map state (.json).", local: "Pick from this computer instead"});
+    if(!r) return;
+    if(!r.local){
+      const p = r.paths[0];
+      try { await applyState(JSON.parse(await readText("server", p))); } catch(err){ stateMsg(`Could not load ${p.split("/").pop()}: ${err.message}`); }
+      return;
+    }
+  }
+  $("#stateInput").value = ""; $("#stateInput").click();
+}
 function saveStateFile(){
   const st = sessionState(true);
   const blob = new Blob([JSON.stringify(st, null, 1)], {type: "application/json"});
-  const a = document.createElement("a"), d = new Date(), pad = n => String(n).padStart(2, "0");
+  const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `stage-map-state_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}.json`;
+  a.download = stateFileName();
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   stateMsg(`Saved ${st.layers.length} layer${st.layers.length === 1 ? "" : "s"} and ${st.pace.length} PACEtomo file${st.pace.length === 1 ? "" : "s"} to ${a.download}.`);
@@ -2333,7 +2780,8 @@ async function applyState(st){
     }
     if(!docs.length) continue;
     const L = addLayer(sl.type, docs, sl.name);
-    Object.assign(L, {color: sl.color || L.color, visible: sl.visible !== false, rot: sl.rot ?? null, showPieces: !!sl.showPieces, alignMode: sl.alignMode || "auto", mergeable: true});
+    Object.assign(L, {color: sl.color || L.color, visible: sl.visible !== false, rot: sl.rot ?? null, showPieces: !!sl.showPieces, alignMode: sl.alignMode || "auto", mergeable: !sl.paceKey});
+    if(sl.paceKey) L.paceKey = sl.paceKey;
     L.loadImages = !!sl.loadImages && canLoad(L);
     buildLayer(L);
   }
@@ -2507,9 +2955,16 @@ function render(){
     if(L.loadImages){
       ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
       if(L.type === "atlas" || L.type === "square"){
+        if(ghostLayer(L)) ghostOn();
         for(const m of L.montages){ let any = false; for(const t of m.tiles){ const c = imgCache.get(t.key); if(c){ drawTile(c, t, s); any = true; } } if(any) montImg.add(m.key); }
+        ghostOff();
       } else {
-        for(const it of L.items){ const c = imgCache.get(it.imgKey); if(c) drawTile(c, {cx: it.cx, cy: it.cy, w: it.w, h: it.h, rot: it.rot, flip: it.flip || 1}, s); }
+        for(const it of L.items){
+          const c = imgCache.get(it.imgKey); if(!c) continue;
+          const gh = ghostItem(it); if(gh) ghostOn();
+          drawTile(c, {cx: it.cx, cy: it.cy, w: it.w, h: it.h, rot: it.rot, flip: it.flip || 1}, s);
+          if(gh) ghostOff();
+        }
       }
     }
     ctx.fillStyle = rgba(L.color, st.fill); ctx.lineWidth = st.lw;
@@ -2738,13 +3193,14 @@ cv.addEventListener("pointerdown", e => {
   cv.setPointerCapture(e.pointerId);
   const p = pos(e); pointers.set(e.pointerId, p);
   if(pointers.size === 1){
-    drag = {p, vx: state.view.x, vy: state.view.y, moved: false};
-    if(state.move && !state.calib){
+    drag = {p, vx: state.view.x, vy: state.view.y, moved: false, button: e.button};
+    if(state.align){ if(e.button === 0 && !spaceDown){ drag.align = true; drag.last = toWorld(...p); } else drag.alignPan = true; }
+    else if(state.move && !state.calib && e.button === 0){
       const it = hitTest(...p), img = isImgItem(it) ? it : null;
-      if(img){ drag.item = img; drag.w0 = toWorld(...p); drag.members = groupMembers(img).map(m => ({m, x: m.cx, y: m.cy})); }
+      if(img){ drag.item = img; drag.w0 = toWorld(...p); drag.members = groupMembers(img).map(m => ({m, x: m.cx, y: m.cy})); ghost = {items: new Set(drag.members.map(o => refKey(o.m)))}; }
       else {
         const g = paceHit(...p);
-        if(g){ drag.pace = g; drag.w0 = toWorld(...p); drag.d0 = g.delta.slice(); drag.members = paceItems(g).map(m => ({m, x: m.cx, y: m.cy})); }
+        if(g){ drag.pace = g; drag.w0 = toWorld(...p); drag.d0 = g.delta.slice(); drag.members = paceItems(g).map(m => ({m, x: m.cx, y: m.cy})); ghost = {pace: g, items: new Set(drag.members.map(o => refKey(o.m)))}; }
       }
     }
     cv.classList.add("dragging");
@@ -2768,8 +3224,12 @@ cv.addEventListener("pointermove", e => {
   }
   if(drag){
     const dx = p[0]-drag.p[0], dy = p[1]-drag.p[1];
-    if(Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
-    if(drag.moved && (drag.item || drag.pace)){
+    if(Math.abs(dx) + Math.abs(dy) > 3){ if(!drag.moved && drag.button !== 0) hideCtxMenu(); drag.moved = true; }
+    if(drag.moved && drag.align){
+      const w = toWorld(...p);
+      shiftAlign(w[0] - drag.last[0], w[1] - drag.last[1]); drag.last = w;
+      showTip(null);
+    } else if(drag.moved && (drag.item || drag.pace)){
       const w = toWorld(...p), mx = w[0] - drag.w0[0], my = w[1] - drag.w0[1];
       for(const o of drag.members){ o.m.cx = o.x + mx; o.m.cy = o.y + my; }
       if(drag.pace) drag.pace.delta = [drag.d0[0] + mx, drag.d0[1] + my];
@@ -2790,7 +3250,9 @@ cv.addEventListener("pointermove", e => {
 });
 function endPointer(e){
   const p = pos(e);
-  if(drag && drag.moved && drag.item){
+  if(drag && drag.moved && drag.button === 2) rightPanAt = performance.now();
+  if(drag && (drag.align || drag.alignPan || drag.button !== 0)){ /* aligning, panning or a right-click: no selection */ }
+  else if(drag && drag.moved && drag.item){
     state.selected = drag.item; state.paceSel = null;
     const n = drag.members.length;
     commitManual(drag.members.map(o => o.m));
@@ -2815,9 +3277,12 @@ function endPointer(e){
   }
   pointers.delete(e.pointerId);
   if(pointers.size < 2) pinch = null;
-  if(!pointers.size){ drag = null; cv.classList.remove("dragging"); }
+  if(!pointers.size){ drag = null; cv.classList.remove("dragging"); if(!state.align && ghost){ ghost = null; render(); } }
 }
 cv.addEventListener("pointerup", endPointer);
+cv.addEventListener("contextmenu", e => { e.preventDefault(); showTip(null); if(performance.now() - rightPanAt < 400 || (drag && drag.moved)) return; openCtxMenu(pos(e)); });
+window.addEventListener("keyup", e => { if(e.code === "Space" && spaceDown){ spaceDown = false; if(state.align) cv.classList.add("aligning"); } });
+window.addEventListener("blur", () => { spaceDown = false; });
 cv.addEventListener("pointercancel", endPointer);
 cv.addEventListener("pointerleave", () => { if(!drag){ state.hover = null; showTip(null); render(); } });
 cv.addEventListener("wheel", e => {
@@ -2829,7 +3294,17 @@ cv.addEventListener("wheel", e => {
   render();
 }, {passive: false});
 window.addEventListener("keydown", e => {
-  if(e.target.matches("input,textarea,select")) return;
+  if(e.target.matches("input,textarea,select") || $("#fpick").open) return;
+  if(state.align){
+    const arrows = {ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1]};
+    if(e.key === "Escape"){ e.preventDefault(); finishAlign(false); return; }
+    if(e.key === "Enter"){ e.preventDefault(); finishAlign(true); return; }
+    if(arrows[e.key]){ e.preventDefault(); const k = e.shiftKey ? 10 : 1, w = screenDeltaToWorld(arrows[e.key][0]*k, arrows[e.key][1]*k); shiftAlign(w[0], w[1]); return; }
+    if(e.code === "Space"){ e.preventDefault(); spaceDown = true; cv.classList.remove("aligning"); return; }
+    if(e.code === "BracketLeft" || e.code === "BracketRight"){ e.preventDefault(); rotateAlign((e.code === "BracketLeft" ? 1 : -1)*(e.shiftKey ? 5 : 0.5)); return; }
+    if(e.key === "d" || e.key === "D"){ setGhostDiff(!ghostDiff); return; }
+    if(e.key === "m" || e.key === "M") return;
+  }
   if(e.key === "m" || e.key === "M"){ setMove(!state.move); return; }
   if(state.move && (e.code === "BracketLeft" || e.code === "BracketRight")){
     e.preventDefault();
@@ -2837,23 +3312,46 @@ window.addEventListener("keydown", e => {
     return;
   }
   if(e.key === "f" || e.key === "F"){ fullView(); }
+  if(e.key === "d" || e.key === "D"){ setGhostDiff(!ghostDiff); setMsg(ghostDiff ? "Moving images are drawn in difference mode." : "Moving images are drawn at 50% opacity."); }
   if(e.key === "Escape"){ if(state.calib){ if(state.calib.pending){ state.calib.pending = null; renderCalPanel(); render(); } return; } fullView(); }
 });
 
 /* ---------- controls ---------- */
 let pendingType = null;
-document.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", () => { pendingType = b.dataset.open; $("#fileInput").value = ""; $("#fileInput").click(); }));
-$("#openFolder").addEventListener("click", chooseFolder);
+const OPEN_LABEL = {atlas: "atlas", square: "square maps", exposure: "exposures", tilt: "tilt series"};
+document.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", async () => {
+  const type = b.dataset.open;
+  if(data.server){
+    const r = await serverPick({purpose: "mdoc", mode: "open", multi: true, ext: "mdoc", title: `Open ${OPEN_LABEL[type]} from the server`,
+      sub: "Click to select, click more to add. The .mrc next to each .mdoc is used for the images.", local: "Pick from this computer instead"});
+    if(!r) return;
+    if(!r.local) return openPaths(r.paths.map(path => ({kind: "server", path})), type);
+  }
+  pendingType = type; $("#fileInput").value = ""; $("#fileInput").click();
+}));
+$("#openFolder").addEventListener("click", async () => {
+  if(!data.server) return chooseFolder();
+  const r = await serverPick({purpose: "folder", mode: "folder", title: "Choose a data folder on the server", sub: "Its mdoc and target files are listed in the Data panel."});
+  if(r && r.dir){ await srvBrowse(r.dir); $("#dataSec").scrollIntoView({block: "start", behavior: "smooth"}); }
+});
 $("#fileInput").addEventListener("change", e => openFiles(e.target.files, pendingType));
 $("#folderInput").addEventListener("change", e => setDataFolder([...e.target.files].map(f => ({file: f, path: f.webkitRelativePath || f.name}))));
 $("#clearAll").addEventListener("click", clearAll);
 $("#moveBtn").addEventListener("click", () => setMove(!state.move));
 $("#snapBtn").addEventListener("click", snapSelected);
 $("#resetPosBtn").addEventListener("click", resetSelected);
-$("#paceOpen").addEventListener("click", () => { $("#tgtsInput").value = ""; $("#tgtsInput").click(); });
+$("#paceOpen").addEventListener("click", async () => {
+  if(data.server){
+    const r = await serverPick({purpose: "pace", mode: "open", multi: true, ext: "tgts", title: "Open PACEtomo targets from the server",
+      sub: "Pick the _tgts.txt file. Its View image, target Previews and tilt series are opened with it.", local: "Pick from this computer instead"});
+    if(!r) return;
+    if(!r.local) return openPaths(r.paths.map(path => ({kind: "server", path})));
+  }
+  $("#tgtsInput").value = ""; $("#tgtsInput").click();
+});
 $("#tgtsInput").addEventListener("change", e => openFiles(e.target.files, null));
-$("#stateSave").addEventListener("click", saveStateFile);
-$("#stateLoad").addEventListener("click", () => { $("#stateInput").value = ""; $("#stateInput").click(); });
+$("#stateSave").addEventListener("click", saveState);
+$("#stateLoad").addEventListener("click", loadState);
 $("#stateInput").addEventListener("change", async e => {
   const f = e.target.files[0]; if(!f) return;
   try { await applyState(JSON.parse(await f.text())); } catch(err){ stateMsg(`Could not load ${f.name}: ${err.message}`); }
@@ -2863,16 +3361,26 @@ $("#stateRestore").addEventListener("click", async () => {
 });
 window.addEventListener("beforeunload", saveSessionLocal);
 document.addEventListener("visibilitychange", () => { if(document.visibilityState === "hidden") saveSessionLocal(); });
-$("#offAlign").addEventListener("click", alignOffset);
+$("#offAlign").addEventListener("click", () => alignOffset());
 $("#useRefined").addEventListener("change", e => { state.settings.useRefined = e.target.checked; rebuildKeepFocus(); });
 $("#refClear").addEventListener("click", () => { REFINED = {}; saveRefined(); rebuildKeepFocus(); setMsg("Cleared all refined positions."); });
-$("#calLoad").addEventListener("click", () => { $("#calInput").value = ""; $("#calInput").click(); });
+function useCalibrationText(text, name){
+  const cal = parseCalibrations(text, name);
+  if(!cal.nIS){ setMsg(`${name} has no ImageShiftMatrix block; is it a SerialEMcalibrations file?`); return; }
+  setCalibrations(cal, true);
+  setMsg(`Loaded ${cal.nIS} image-shift calibrations from ${name}.`);
+}
+$("#calLoad").addEventListener("click", async () => {
+  if(data.server){
+    const r = await serverPick({purpose: "cal", mode: "open", ext: "txt,bak", title: "Load SerialEMcalibrations.txt from the server", sub: "Usually copied from C:\\ProgramData\\SerialEM on the microscope computer.", local: "Pick from this computer instead"});
+    if(!r) return;
+    if(!r.local){ const p = r.paths[0]; try { useCalibrationText(await readText("server", p), p.split("/").pop()); } catch(e){ setMsg(`Could not read ${p.split("/").pop()}: ${e.message}`); } return; }
+  }
+  $("#calInput").value = ""; $("#calInput").click();
+});
 $("#calInput").addEventListener("change", async e => {
   const f = e.target.files[0]; if(!f) return;
-  const cal = parseCalibrations(await f.text(), f.name);
-  if(!cal.nIS){ setMsg(`${f.name} has no ImageShiftMatrix block; is it a SerialEMcalibrations file?`); return; }
-  setCalibrations(cal, true);
-  setMsg(`Loaded ${cal.nIS} image-shift calibrations from ${f.name}.`);
+  useCalibrationText(await f.text(), f.name);
 });
 $("#calClear").addEventListener("click", () => setCalibrations(null, true));
 $("#offReset").addEventListener("click", () => setOffset(0, 0, "Offset reset to 0."));

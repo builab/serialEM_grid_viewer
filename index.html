@@ -3277,12 +3277,13 @@ function mvFramePace(t){
   const pickSub = kk => L[2][1] || `Target ${kk} of ${n}`;
   if(t < P.tE){
     const u = (t - P.tD)/P.TV, z = mvZoomCam(u, P.sqC, P.zSq, [P.camV.x, P.camV.y], P.zV), cm = cam(z.x, z.y, z.s, P.fEnd), va = mvEase((z.s/P.zV - 0.25)/0.55);
-    mvScene(g, cm, 1); mvView(g, cm, va); mvAxis(g, cm, va, k); mvBox(g, cm, mv.viewImg, mvEase(u*4)*(1 - va), k);
+    mvScene(g, cm, 1); mvView(g, cm, va); mvBox(g, cm, mv.viewImg, mvEase(u*4)*(1 - va), k);
     if(u < 0.65) mvTitle(g, k, L[1][0], L[1][1], 1 - mvEase((u - 0.35)/0.3)); else mvTitle(g, k, L[2][0], L[2][1] || `${n} target${n === 1 ? "" : "s"}`, mvEase((u - 0.7)/0.3));
     bar(cm); return null;
   }
   if(t < P.tG){
-    const cm = P.camV; mvScene(g, cm, 1); mvView(g, cm, 1); mvAxis(g, cm, 1, k);
+    const cm = P.camV; mvScene(g, cm, 1); mvView(g, cm, 1);
+    mvAxis(g, cm, mvEase((t - P.tF - 0.85*P.TP)/Math.max(0.3, 0.5*P.TP)), k);      // drawn once target 1 (on the axis) is picked
     let kk = 0;
     mv.tg.forEach((x, i) => { const pr = (t - P.tF - i*P.TP)/P.TP; if(pr > 0) kk = i + 1; mvMark(g, cm, x, Math.min(1.5, pr), k, 1); });
     mvTitle(g, k, L[2][0], kk ? pickSub(kk) : (L[2][1] || `${n} target${n === 1 ? "" : "s"}`), 1);

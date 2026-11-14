@@ -2726,12 +2726,21 @@ function mvTile(g, cam, img, t){
   g.save(); g.translate(sx, sy); g.rotate(ys()*t.rot*Math.PI/180 - cam.f); g.scale(1, -ys()*(t.flip || 1));
   g.drawImage(img, -w/2 - 0.3, -h/2 - 0.3, w + 0.6, h + 0.6); g.restore();
 }
-function mvScene(g, cam){
+// mix: 0 = the atlas alone, 1 = the square map alone on black; in between they cross-fade
+function mvScene(g, cam, mix){
+  if(!mv.atlasImgs.length) mix = 1;
+  g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
   g.fillStyle = "#000"; g.fillRect(0, 0, cam.W, cam.H);
   g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
-  for(const t of mv.atlasImgs) mvTile(g, cam, t.img, t);
-  if(mv.sqImg) mvTile(g, cam, mv.sqImg.img, mv.sqImg); else for(const t of mv.sqTiles) mvTile(g, cam, imgCache.get(t.key).tile, t);
-  if(mv.patch && cam.s > mv.sqImg.scale*0.7) mvTile(g, cam, mv.patch.img, mv.patch);
+  if(mix < 1){ g.globalAlpha = 1 - mix; for(const t of mv.atlasImgs) mvTile(g, cam, t.img, t); }
+  if(mix > 0){
+    // added, not painted over: inside the square map the result is atlas x (1 - mix) + square map x mix
+    g.globalAlpha = mix; g.globalCompositeOperation = mix < 1 ? "lighter" : "source-over";
+    if(mv.sqImg) mvTile(g, cam, mv.sqImg.img, mv.sqImg); else for(const t of mv.sqTiles) mvTile(g, cam, imgCache.get(t.key).tile, t);
+    g.globalCompositeOperation = "source-over";
+    if(mix >= 1 && mv.patch && cam.s > mv.sqImg.scale*0.7) mvTile(g, cam, mv.patch.img, mv.patch);
+  }
+  g.globalAlpha = 1;
 }
 function mvBox(g, cam, b, alpha, k){
   if(alpha <= 0) return;
@@ -2786,7 +2795,7 @@ function mvInset(u){ const n = mv.plan.inset, e = mvEase(u); return {s: n.s0*Mat
 // the tilt image as an inset, with its angle label, angle track and the stage-tilt schematic
 function mvTiltFrame(g, img, ins, dim, angle, title, sub, ta, bar, schAng, schAlpha){
   const P = mv.plan, k = P.k, it = mv.it, c = mv.cfg;
-  if(!mv.bgEnd){ mv.bgEnd = document.createElement("canvas"); mv.bgEnd.width = P.MW; mv.bgEnd.height = P.MH; mvScene(mv.bgEnd.getContext("2d"), P.camEnd); }
+  if(!mv.bgEnd){ mv.bgEnd = document.createElement("canvas"); mv.bgEnd.width = P.MW; mv.bgEnd.height = P.MH; mvScene(mv.bgEnd.getContext("2d"), P.camEnd, 1); }
   g.globalAlpha = 1; g.fillStyle = "#000"; g.fillRect(0, 0, P.MW, P.MH); g.globalAlpha = dim; g.drawImage(mv.bgEnd, 0, 0); g.globalAlpha = 1;
   const w = it.w*ins.s, h = it.h*ins.s;
   g.save(); g.translate(ins.p[0], ins.p[1]); g.rotate(ins.ang); g.scale(1, -ys()*(it.flip || 1));
@@ -2820,18 +2829,19 @@ function mvFrame(t){
   const timg = z => { const im = mv.timg.get(z); if(!im) need = z; return im || mv.timg.get(z0) || null; };
   if(P.hasAtlas && t < P.tB){
     const cm = cam(P.full.x, P.full.y, P.full.s, P.f0);
-    mvScene(g, cm); mvBox(g, cm, mv.sqBox, mvEase((t - Math.min(1, P.tB/3))/0.8), k); mvTitle(g, k, L[0][0], L[0][1], 1); mvBar(g, k, 1000/cm.s, P.MW - 60*k, P.MH - 60*k);
+    mvScene(g, cm, 0); mvBox(g, cm, mv.sqBox, mvEase((t - Math.min(1, P.tB/3))/0.8), k); mvTitle(g, k, L[0][0], L[0][1], 1); mvBar(g, k, 1000/cm.s, P.MW - 60*k, P.MH - 60*k);
   } else if(P.hasAtlas && t < P.tC){
     const tb = (t - P.tB)*4/P.TB, u = tb/4, z = mvZoomCam(u, [P.full.x, P.full.y], P.full.s, P.sqC, P.zSq), cm = cam(z.x, z.y, z.s, P.f0 + (P.fEnd - P.f0)*mvEase(u));
-    mvScene(g, cm); mvBox(g, cm, mv.sqBox, 1 - mvEase((tb - 2.6)/1.0), k); mvTitle(g, k, L[0][0], L[0][1], 1); mvBar(g, k, 1000/cm.s, P.MW - 60*k, P.MH - 60*k);
+    const mix = mvEase((z.s/P.zSq - 0.3)/0.55);
+    mvScene(g, cm, mix); mvBox(g, cm, mv.sqBox, 1 - mix, k); mvTitle(g, k, L[0][0], L[0][1], 1); mvBar(g, k, 1000/cm.s, P.MW - 60*k, P.MH - 60*k);
   } else if(t < P.tD){
     const tc = (t - P.tC)*2/P.TS, cm = cam(P.sqC[0], P.sqC[1], P.zSq, P.fEnd);
-    mvScene(g, cm);
+    mvScene(g, cm, 1);
     if(P.hasAtlas && tc < 0.8) mvTitle(g, k, L[0][0], L[0][1], 1 - mvEase(tc/0.8)); else mvTitle(g, k, L[1][0], L[1][1], P.hasAtlas ? mvEase((tc - 0.8)/0.8) : 1);
     mvBar(g, k, 1000/cm.s, P.MW - 60*k, P.MH - 60*k);
   } else if(t < P.tE){
     const td = t - P.tD, ZT = P.ZT, z = mvZoomCam(td/ZT, P.sqC, P.zSq, [it.cx, it.cy], P.zTg), cm = cam(z.x, z.y, z.s, P.fEnd);
-    mvScene(g, cm); mvBox(g, cm, it, mvEase((td - ZT - 0.2)/0.6), k);
+    mvScene(g, cm, 1); mvBox(g, cm, it, mvEase((td - ZT - 0.2)/0.6), k);
     if(td < ZT - 0.8) mvTitle(g, k, L[1][0], L[1][1], 1 - mvEase((td - ZT + 1.4)/0.6)); else mvTitle(g, k, L[2][0], L[2][1], mvEase((td - ZT + 0.8)/0.6));
     mvBar(g, k, 1000/cm.s, P.MW - 60*k, P.MH - 60*k);
   } else if(t < P.tF){

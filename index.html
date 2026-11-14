@@ -1063,6 +1063,11 @@ function mrcCandidates(doc){
   const out = [];
   if(/\.mdoc$/i.test(base)) out.push(base.replace(/\.mdoc$/i, ""));
   if(doc.header.ImageFile) out.push(String(doc.header.ImageFile).split(/[\\/]/).pop());
+  // a tilt series may be kept as TS_001.st next to TS_001.mrc.mdoc (IMOD naming), or the other way round
+  for(const n of [...out]){
+    if(/\.mrc$/i.test(n)) out.push(n.replace(/\.mrc$/i, ".st"));
+    else if(/\.st$/i.test(n)) out.push(n.replace(/\.st$/i, ".mrc"));
+  }
   return [...new Set(out)].filter(n => /\.(mrc|st|map|mrcs|ali|preali)$/i.test(n)).map(n => ({dir, name: n}));
 }
 async function findMrc(doc){
@@ -1074,7 +1079,7 @@ async function findMrc(doc){
       const r = await fetch(`api/stat?path=${encodeURIComponent(path)}`, {cache: "no-store"});
       if(r.ok) return {label: path, path, read: (a, b) => fetch(`api/file?path=${encodeURIComponent(path)}`, {headers: {Range: `bytes=${a}-${b-1}`}}).then(r => { if(!r.ok && r.status !== 206) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })};
     }
-    throw new Error(`${cands[0].name} not found next to the mdoc on the server.`);
+    throw new Error(`${cands.map(c => c.name).join(" or ")} not found next to the mdoc on the server.`);
   }
   const fileHandle = (f, label) => ({label, read: (a, b) => f.slice(a, b).arrayBuffer()});
   if(data.folder){
@@ -1086,7 +1091,8 @@ async function findMrc(doc){
     }
   }
   for(const c of cands){ const f = data.extra.get(c.name.toLowerCase()); if(f) return fileHandle(f, c.name); }
-  throw new Error(data.folder ? `${cands[0].name} is not in the data folder.` : `Choose a data folder to load ${cands[0].name}.`);
+  const names = cands.map(c => c.name).join(" or ");
+  throw new Error(data.folder ? `${names} is not in the data folder.` : `Choose a data folder, or select ${names} with the mdoc.`);
 }
 const MODE_BYTES = {0: 1, 1: 2, 2: 4, 6: 2, 12: 2};
 function getHeader(doc){

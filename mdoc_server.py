@@ -209,7 +209,13 @@ def ext_filter(spec):
 
 def has_mrc(real_mdoc):
     base = real_mdoc[:-5]            # strip ".mdoc"
-    return base.lower().endswith(MRC_EXT) and os.path.isfile(base)
+    if not base.lower().endswith(MRC_EXT):
+        return False
+    if os.path.isfile(base):
+        return True
+    stem, ext = os.path.splitext(base)  # TS_001.mrc.mdoc may go with TS_001.st, and the other way round
+    alt = {".mrc": ".st", ".st": ".mrc"}.get(ext.lower())
+    return bool(alt) and os.path.isfile(stem + alt)
 
 
 class Handler(BaseHTTPRequestHandler):

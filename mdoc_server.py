@@ -135,8 +135,22 @@ def read_binned_section(real, z, binf):
     return a.astype("<f4").tobytes(), bw, bh
 
 
+FFMPEG = "auto"          # --ffmpeg: a path, "auto" (look on PATH) or "none"
+
+
 def ffmpeg_path():
-    return shutil.which("ffmpeg")
+    if FFMPEG == "none":
+        return None
+    if FFMPEG != "auto":
+        return FFMPEG if os.path.isfile(FFMPEG) else shutil.which(FFMPEG)
+    exe = shutil.which("ffmpeg")
+    if not exe:
+        try:                                   # the copy that comes with the imageio-ffmpeg Python package
+            import imageio_ffmpeg
+            exe = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            exe = None
+    return exe
 
 
 def ffmpeg_encoder(exe):
@@ -383,7 +397,7 @@ class Handler(BaseHTTPRequestHandler):
             out, log = os.path.join(d, "movie.mp4"), open(os.path.join(d, "ffmpeg.log"), "wb")
             enc, args = ffmpeg_encoder(exe)
             proc = subprocess.Popen([exe, "-y", "-loglevel", "error", "-f", "image2pipe", "-c:v", "mjpeg", "-framerate", f"{fps:g}", "-i", "-"]
-                                    + args + ["-pix_fmt", "yuv420p", "-movflags", "+faststart", out],
+                                    + args + ["-r", f"{fps:g}", "-pix_fmt", "yuv420p", "-movflags", "+faststart", out],
                                     stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=log)
             mid = secrets.token_urlsafe(18)
             MOVIES[mid] = {"proc": proc, "dir": d, "out": out, "log": log, "n": 0, "t": time.time(), "lock": threading.Lock()}
@@ -549,7 +563,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global HTML_PATH, VERBOSE, WRITABLE
+    global HTML_PATH, VERBOSE, WRITABLE, FFMPEG
     ap = argparse.ArgumentParser(description="Serve mdoc Stage Map and SerialEM data folders (read-only except session .json files).")
     ap.add_argument("roots", nargs="+", help="data folders to share")
     ap.add_argument("--port", type=int, default=8765)
@@ -557,6 +571,7 @@ def main():
     ap.add_argument("--html", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"),
                     help="path to the viewer page (default: index.html next to this script)")
     ap.add_argument("--read-only", action="store_true", help="never write anything, not even session .json files")
+    ap.add_argument("--ffmpeg", default="auto", help="ffmpeg used to encode acquisition movies: a path, 'auto' (default: look on PATH) or 'none'")
     ap.add_argument("-v", "--verbose", action="store_true", help="log every request")
     a = ap.parse_args()
 
@@ -573,6 +588,7 @@ def main():
     HTML_PATH = os.path.realpath(a.html)
     VERBOSE = a.verbose
     WRITABLE = not a.read_only
+    FFMPEG = a.ffmpeg
     if not os.path.isfile(HTML_PATH):
         print(f"Warning: viewer page not found at {HTML_PATH}", file=sys.stderr)
 
@@ -583,6 +599,7 @@ def main():
     print(f"mdoc Stage Map server {VERSION}  (numpy {'found: pieces are shrunk on the server' if np is not None else 'not found: full pieces are sent'})")
     for n, r in ROOTS.items():
         print(f"  sharing  {n:<16} {r}")
+    print("  movies   " + (f"encoded with {ffmpeg_path()}" if ffmpeg_path() else "ffmpeg not found (pass --ffmpeg PATH): the browser encodes them instead"))
     print(f"\n  Open  http://{shown}:{a.port}\n")
     if a.host not in ("127.0.0.1", "localhost"):
         print("  Note: other computers on the network can read the shared folders"

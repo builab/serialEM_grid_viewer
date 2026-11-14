@@ -334,6 +334,7 @@ details.more>.layer-ctl{padding:6px 0 0}
       <canvas id="mvCanvas" width="1920" height="1080" aria-label="Movie preview"></canvas>
       <div class="mvbar"><button class="btn small" type="button" id="mvPlay">Play</button><input type="range" id="mvTime" min="0" max="1" step="0.01" value="0" aria-label="Time"><span id="mvClock"></span></div>
       <div class="mvmeta" id="mvInfo"></div>
+      <div class="mvmeta" id="mvEnc"></div>
       <progress id="mvProg" max="1" value="0" hidden></progress>
       <div class="msg" id="mvStatus" role="status"></div>
       <div class="mvfoot"><span id="mvOut"></span><span style="flex:1"></span><button class="btn small" type="button" id="mvClose">Close</button><button class="btn small primary" type="button" id="mvRender">Make movie</button></div>
@@ -2515,7 +2516,7 @@ function drawPace(){
 // Uses the positions as aligned in the viewer. Frames are drawn on a canvas; the server's ffmpeg encodes them
 // (or, without it, the browser records the canvas in real time).
 const MV_KEY = "mdocStageMap.movie";
-const MV_DEF = {size: "1920x1080", fps: 30, zoom: 6, hold: 3, tiltFps: 10, schematic: true, upright: true, first: "low",
+const MV_DEF = {size: "1920x1080", fps: 30, zoom: 6, tAtlas: 3, tToSq: 4, tSq: 2, tToTg: 4, hold: 3, tiltFps: 10, schematic: true, upright: true, level: true, turn: 0, first: "low",
   labels: [["Atlas", "Grid overview"], ["Square map", "Selecting the acquisition position"], ["Acquisition position", "Tilt-series target"], ["Tilt series", ""]]};
 let mv = null;
 const mvEase = t => { t = Math.max(0, Math.min(1, t)); return t*t*(3 - 2*t); };
@@ -2527,7 +2528,7 @@ function mvCfg(){
   c.labels = MV_DEF.labels.map((d, i) => Array.isArray(sv.labels && sv.labels[i]) ? [String(sv.labels[i][0] ?? d[0]), String(sv.labels[i][1] ?? d[1])] : d.slice());
   return c;
 }
-function mvSaveCfg(){ const {start, low, high, zoom, ...keep} = mv.cfg; try { localStorage.setItem(MV_KEY, JSON.stringify(keep)); } catch(e){} }
+function mvSaveCfg(){ const {start, low, high, zoom, tToTg, ...keep} = mv.cfg; try { localStorage.setItem(MV_KEY, JSON.stringify(keep)); } catch(e){} }
 function mvTilts(doc){
   const secs = imageSections(doc).map(s => ({z: Number(s.index), a: num(s.kv.TiltAngle), t: Date.parse(String(s.kv.DateTime || "").replace(/\s+/g, " "))})).filter(x => !isNaN(x.a));
   secs.sort((p, q) => p.a - q.a);
@@ -2562,15 +2563,81 @@ async function mvOpen(it){
   const an = mv.tilts.secs.map(x => x.a);
   Object.assign(mv.cfg, {start: Math.round(mv.tilts.start), low: Math.floor(Math.min(...an)), high: Math.ceil(Math.max(...an))});
   mv.seq = mvSeq();
-  mvForm(); if(!dlg.open) dlg.showModal();
+  mvForm(); mvEncoderNote(); if(!dlg.open) dlg.showModal();
   mvSay("Loading the atlas, the square map and the tilt image…");
   try {
     await mvPrepare(); mv.ready = true; mvPlan();
     mv.cfg.zoom = Math.max(3, Math.min(40, Math.round(mv.plan.MH/6/(Math.max(it.w, it.h)*mv.plan.zSq))));
-    $("#mvZoom").value = mv.cfg.zoom; mvPlan(); mvSay(""); mvShow(mv.plan.tD + mv.plan.ZT + 0.9);
+    mv.cfg.tToTg = +Math.max(3, Math.min(8, 4 + 1.2*Math.log2(mv.cfg.zoom/6))).toFixed(1);
+    $("#mvZoom").value = mv.cfg.zoom; $("#mvTToTg").value = mv.cfg.tToTg; mvPlan(); mvSay(""); mvShow(mv.plan.tD + mv.plan.ZT + 0.9);
   } catch(e){ mvSay(`Cannot make the movie: ${e.message}`, true); }
 }
 function mvSay(t, err){ const el = $("#mvStatus"); if(!el) return; el.textContent = t || ""; el.classList.toggle("err", !!err); }
+// Blend montage pieces into one image, like blendmont: each piece fades in over its overlap with the pieces
+// already drawn. parts: [{cx, cy, w, h, flip}] with imgs[i] a canvas; box: {cx, cy, w, h, rot}; scale: px per µm.
+function mvBlend(parts, imgs, box, scale, fade){
+  const W = Math.max(2, Math.round(box.w*scale)), H = Math.max(2, Math.round(box.h*scale));
+  const cvs = document.createElement("canvas"); cvs.width = W; cvs.height = H;
+  const g = cvs.getContext("2d"); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+  const r = box.rot*Math.PI/180, c = Math.cos(r), sn = Math.sin(r), flip = parts[0].flip || 1;
+  const P = parts.map(p => { const dx = p.cx - box.cx, dy = p.cy - box.cy; return {u: dx*c + dy*sn, v: -dx*sn + dy*c, w: p.w, h: p.h}; });
+  // overlap between neighbours along each axis
+  let du = Infinity, dv = Infinity;
+  for(let i = 0; i < P.length; i++) for(let j = i + 1; j < P.length; j++){
+    const a = Math.abs(P[i].u - P[j].u), b = Math.abs(P[i].v - P[j].v);
+    if(a > 0.3*P[i].w && b < 0.5*P[i].h) du = Math.min(du, a);
+    if(b > 0.3*P[i].h && a < 0.5*P[i].w) dv = Math.min(dv, b);
+  }
+  const tmp = document.createElement("canvas"), tg = tmp.getContext("2d");
+  const ramp = (ctx, w, h, fx, fy) => {
+    ctx.globalCompositeOperation = "destination-in";
+    if(fx > 0){ const q = ctx.createLinearGradient(0, 0, w, 0), e = Math.min(0.49, fx/w); q.addColorStop(0, "rgba(0,0,0,0)"); q.addColorStop(e, "#000"); q.addColorStop(1 - e, "#000"); q.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = q; ctx.fillRect(0, 0, w, h); }
+    if(fy > 0){ const q = ctx.createLinearGradient(0, 0, 0, h), e = Math.min(0.49, fy/h); q.addColorStop(0, "rgba(0,0,0,0)"); q.addColorStop(e, "#000"); q.addColorStop(1 - e, "#000"); q.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = q; ctx.fillRect(0, 0, w, h); }
+    ctx.globalCompositeOperation = "source-over";
+  };
+  P.forEach((p, i) => {
+    const pw = p.w*scale, ph = p.h*scale, x = W/2 + p.u*scale - pw/2, y = H/2 - flip*p.v*scale - ph/2, iw = Math.max(2, Math.round(pw)), ih = Math.max(2, Math.round(ph));
+    const fx = isFinite(du) ? Math.max(2, 0.8*(p.w - du)*scale) : 0, fy = isFinite(dv) ? Math.max(2, 0.8*(p.h - dv)*scale) : 0;
+    tmp.width = iw; tmp.height = ih; tg.imageSmoothingEnabled = true; tg.imageSmoothingQuality = "high";
+    tg.drawImage(imgs[i], 0, 0, iw, ih); ramp(tg, iw, ih, fx, fy);
+    g.globalCompositeOperation = "destination-over"; g.drawImage(imgs[i], x, y, pw, ph);      // fill what is still empty
+    g.globalCompositeOperation = "source-over"; g.drawImage(tmp, x, y, pw, ph);              // fade in over the overlap
+  });
+  if(fade > 0) ramp(g, W, H, fade, fade);
+  return cvs;
+}
+// one contrast for a whole montage: 0.5 to 99.5 % of all its pixels (small copies of every piece)
+async function mvPooledRange(parts){
+  const pool = [];
+  for(const p of parts){
+    try { const h = await getHeader(p.doc), r = await loadSection(p.doc, Number(p.sec.index), Math.max(1, Math.ceil(Math.max(h.nx, h.ny)/256))); const st = Math.max(1, Math.floor(r.raw.length/6000)); for(let i = 0; i < r.raw.length; i += st) if(isFinite(r.raw[i])) pool.push(r.raw[i]); } catch(e){}
+  }
+  if(!pool.length) return null;
+  const a = Float32Array.from(pool).sort(), q = f => a[Math.min(a.length - 1, Math.max(0, Math.round(f*(a.length - 1))))];
+  return {lo: q(0.005), hi: q(0.995)};
+}
+// the square map (or a region of it) as one blended image at up to maxPx across
+async function mvSquareImage(parts, box, maxPx, range, fadeUm, say){
+  const nat = Math.min(...parts.map(p => nativeUm(p.doc, p.sec)).filter(v => v > 0));
+  const scale = Math.min(maxPx/Math.max(box.w, box.h), isFinite(nat) ? 1/nat : Infinity), imgs = [], used = [];
+  for(let i = 0; i < parts.length; i++){
+    const p = parts[i]; if(say) say(i, parts.length);
+    try {
+      const h = await getHeader(p.doc), pn = nativeUm(p.doc, p.sec) || nat, bin = Math.max(1, Math.floor(1/(scale*pn) + 1e-6));
+      const r = await loadSection(p.doc, Number(p.sec.index), Math.max(bin, Math.ceil(Math.max(h.nx, h.ny)/3072)));
+      imgs.push(makeTile(r.raw, r.bw, r.bh, range ? range.lo : r.lo, range ? range.hi : r.hi)); used.push(p);
+    } catch(e){}
+  }
+  if(!used.length) return null;
+  return {img: mvBlend(used, imgs, box, scale, (fadeUm || 0)*scale), cx: box.cx, cy: box.cy, w: box.w, h: box.h, rot: box.rot, flip: used[0].flip || 1, scale};
+}
+function mvFrameBox(tiles){        // the box around tiles, in their own (shared) orientation
+  const o = tiles[0], r0 = o.rot*Math.PI/180, c0 = Math.cos(r0), s0 = Math.sin(r0);
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for(const t of tiles){ const dx = t.cx - o.cx, dy = t.cy - o.cy, u = dx*c0 + dy*s0, v = -dx*s0 + dy*c0; u0 = Math.min(u0, u - t.w/2); u1 = Math.max(u1, u + t.w/2); v0 = Math.min(v0, v - t.h/2); v1 = Math.max(v1, v + t.h/2); }
+  const um = (u0 + u1)/2, vm = (v0 + v1)/2;
+  return {cx: o.cx + um*c0 - vm*s0, cy: o.cy + um*s0 + vm*c0, w: u1 - u0, h: v1 - v0, rot: o.rot};
+}
 async function mvPrepare(){
   const it = mv.it, self = mv;
   const sq = squareFor(it.cx, it.cy);
@@ -2582,22 +2649,29 @@ async function mvPrepare(){
   self.atlasTiles = atlasL ? atlasL.montages.flatMap(x => x.tiles).filter(t => imgCache.has(t.key)) : [];
   self.sqTiles = m.tiles.filter(t => imgCache.has(t.key)); self.sqName = m.name;
   if(!self.sqTiles.length) throw new Error("the square map images could not be read.");
-  // the square map as one box in its own frame
-  const r0 = self.sqTiles[0].rot*Math.PI/180, c0 = Math.cos(r0), s0 = Math.sin(r0), o = self.sqTiles[0];
-  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
-  for(const t of self.sqTiles){ const dx = t.cx - o.cx, dy = t.cy - o.cy, u = dx*c0 + dy*s0, v = -dx*s0 + dy*c0; u0 = Math.min(u0, u - t.w/2); u1 = Math.max(u1, u + t.w/2); v0 = Math.min(v0, v - t.h/2); v1 = Math.max(v1, v + t.h/2); }
-  const um = (u0 + u1)/2, vm = (v0 + v1)/2;
-  self.sqBox = {cx: o.cx + um*c0 - vm*s0, cy: o.cy + um*s0 + vm*c0, w: u1 - u0, h: v1 - v0, rot: o.rot};
-  // pieces around the target at full resolution, with the montage's contrast, for the close-up
-  self.hi = [];
-  const near = parts.map(p => ({p, d: Math.hypot(p.cx - it.cx, p.cy - it.cy)})).filter(x => x.d < Math.hypot(x.p.w, x.p.h)*0.75).sort((a, b) => a.d - b.d).slice(0, 4);
-  for(const {p} of near){
-    try {
-      const z = Number(p.sec.index), h = await getHeader(p.doc), ent = imgCache.get(`${p.doc.id}|${z}`);
-      const r = await loadSection(p.doc, z, Math.max(1, Math.ceil(Math.max(h.nx, h.ny)/3072)));
-      if(r.bw > (ent ? ent.tile.width : 0)*1.2) self.hi.push({...p, img: makeTile(r.raw, r.bw, r.bh, ent ? ent.lo : r.lo, ent ? ent.hi : r.hi)});
-    } catch(e){}
+  self.sqBox = mvFrameBox(self.sqTiles);
+  // atlas: its display pieces blended into one image per montage
+  self.atlasImgs = [];
+  if(atlasL) for(const am of atlasL.montages){
+    const ts = am.tiles.filter(t => imgCache.has(t.key)); if(!ts.length) continue;
+    const b = mvFrameBox(ts), sc = Math.min(6144/Math.max(b.w, b.h), imgCache.get(ts[0].key).tile.width/ts[0].w);
+    self.atlasImgs.push({img: mvBlend(ts, ts.map(t => imgCache.get(t.key).tile), b, sc, 0), ...b, flip: ts[0].flip || 1});
   }
+  // square map: every piece re-read at higher resolution, one contrast for the whole map, overlaps blended
+  mvSay("Blending the square map…");
+  const range = await mvPooledRange(parts);
+  self.sqImg = await mvSquareImage(parts, self.sqBox, 4096, range, 0, (i, n) => mvSay(`Blending the square map: piece ${i + 1} of ${n}…`));
+  // close-up: the area around the target at the pieces' own resolution, faded into the map at its edge
+  self.patch = null;
+  const side = Math.max(6*Math.max(it.w, it.h), 4), pb = {cx: it.cx, cy: it.cy, w: Math.min(side*1.8, self.sqBox.w), h: Math.min(side*1.8, self.sqBox.h), rot: self.sqBox.rot};
+  const near = parts.filter(p => Math.abs(p.cx - it.cx) < (Math.hypot(p.w, p.h) + Math.hypot(pb.w, pb.h))/2 && Math.abs(p.cy - it.cy) < (Math.hypot(p.w, p.h) + Math.hypot(pb.w, pb.h))/2)
+    .sort((a, b) => Math.hypot(a.cx - it.cx, a.cy - it.cy) - Math.hypot(b.cx - it.cx, b.cy - it.cy)).slice(0, 6);
+  if(near.length && self.sqImg){
+    mvSay("Reading the area around the target at full resolution…");
+    const pt = await mvSquareImage(near, pb, 3072, range, Math.min(pb.w, pb.h)*0.12);
+    if(pt && pt.scale > self.sqImg.scale*1.3) self.patch = pt;
+  }
+  self.hi = self.patch ? [self.patch] : [];
   await mvTiltImg(mv.seq.length ? mv.seq[0].z : Number(it.sec.index));
 }
 async function mvTiltImg(z){
@@ -2611,10 +2685,12 @@ async function mvTiltImg(z){
 function mvPlan(){
   const c = mv.cfg, [MW, MH] = c.size.split("x").map(Number), it = mv.it, sq = mv.sqBox;
   if(mv.canvas.width !== MW || mv.canvas.height !== MH){ mv.canvas.width = MW; mv.canvas.height = MH; }
-  const f0 = vrot(), k = MH/1080, hasAtlas = mv.atlasTiles.length > 0;
-  let fEnd = f0, q = 0;
-  const a = ys()*sq.rot*Math.PI/180;
-  if(c.upright){ q = Math.round((a - f0)/(Math.PI/2)); fEnd = a - q*Math.PI/2; }
+  const k = MH/1080, hasAtlas = mv.atlasTiles.length > 0, near90 = (ang, ref) => ang - Math.round((ang - ref)/(Math.PI/2))*(Math.PI/2);
+  // start: the atlas level (its pieces horizontal), plus any extra turn; end: the square map upright
+  let f0 = vrot();
+  if(hasAtlas && c.level) f0 = near90(ys()*mv.atlasTiles[0].rot*Math.PI/180, f0);
+  f0 += (c.turn || 0)*Math.PI/180;
+  const a = ys()*sq.rot*Math.PI/180, fEnd = c.upright ? near90(a, f0) : f0;
   const cam0 = {x: 0, y: 0, s: 1, f: f0, W: 0, H: 0};
   let full = null;
   if(hasAtlas){
@@ -2626,16 +2702,16 @@ function mvPlan(){
   // on-screen size of the square map at the end rotation
   const Ps = mvCorners(sq).map(p => mvPt({...cam0, f: fEnd}, p[0], p[1])), sw = Math.max(...Ps.map(p => p[0])) - Math.min(...Ps.map(p => p[0])), sh = Math.max(...Ps.map(p => p[1])) - Math.min(...Ps.map(p => p[1]));
   const zSq = 0.97*Math.min(MW/sw, MH/sh), zTg = zSq*Math.max(1, c.zoom);
-  const ZT = Math.max(3, Math.min(8, 4 + 1.2*Math.log2(Math.max(c.zoom, 1)/6)));
+  const ZT = Math.max(0.5, c.tToTg || 4), TB = Math.max(0.5, c.tToSq), TS = Math.max(0.5, c.tSq);
   const camEnd = {x: it.cx, y: it.cy, s: zTg, f: fEnd, W: MW, H: MH};
   // tilt inset: from its footprint on the map to half the frame
   const a0 = ys()*it.rot*Math.PI/180 - fEnd, a1 = Math.round(a0/(Math.PI/2))*(Math.PI/2), odd = Math.abs(Math.round(a1/(Math.PI/2))) % 2 === 1;
   const bw = odd ? it.h : it.w, bh = odd ? it.w : it.h;
   const inset = {p0: mvPt(camEnd, it.cx, it.cy), s0: zTg, a0, a1, s1: Math.min(0.5*MW/bw, 0.5*MH/bh), p1: [MW/2 - (c.schematic ? 190*k : 0), MH/2 - 10*k]};
   mv.seq = mvSeq();
-  const tA = 0, tB = hasAtlas ? 3 : 0, tC = hasAtlas ? 7 : 0, tD = tC + 2, tE = tD + ZT + 0.8 + Math.max(0, c.hold), tF = tE + 2;
+  const tA = 0, tB = hasAtlas ? Math.max(0.5, c.tAtlas) : 0, tC = hasAtlas ? tB + TB : 0, tD = tC + TS, tE = tD + ZT + 0.8 + Math.max(0, c.hold), tF = tE + 2;
   const total = tF + mv.seq.length/Math.max(1, c.tiltFps) + 1.5;
-  mv.plan = {MW, MH, k, f0, fEnd, full, sqC: [sq.cx, sq.cy], zSq, zTg, ZT, camEnd, inset, hasAtlas, tA, tB, tC, tD, tE, tF, total};
+  mv.plan = {MW, MH, k, f0, fEnd, full, sqC: [sq.cx, sq.cy], zSq, zTg, ZT, TB, TS, camEnd, inset, hasAtlas, tA, tB, tC, tD, tE, tF, total};
   mv.bgEnd = null;
   const sl = $("#mvTime"); if(sl){ sl.max = total.toFixed(3); sl.step = (1/c.fps).toFixed(4); }
   const info = $("#mvInfo"); if(info) info.textContent = `${total.toFixed(1)} s · ${Math.round(total*c.fps)} frames · ${mv.seq.length} tilt images${mv.seq.length ? ` (${mvSchemeText()})` : ""}`;
@@ -2653,9 +2729,9 @@ function mvTile(g, cam, img, t){
 function mvScene(g, cam){
   g.fillStyle = "#000"; g.fillRect(0, 0, cam.W, cam.H);
   g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
-  for(const t of mv.atlasTiles) mvTile(g, cam, imgCache.get(t.key).tile, t);
-  for(const t of mv.sqTiles) mvTile(g, cam, imgCache.get(t.key).tile, t);
-  for(const p of mv.hi) if(p.w*cam.s > p.img.width*0.25) mvTile(g, cam, p.img, p);
+  for(const t of mv.atlasImgs) mvTile(g, cam, t.img, t);
+  if(mv.sqImg) mvTile(g, cam, mv.sqImg.img, mv.sqImg); else for(const t of mv.sqTiles) mvTile(g, cam, imgCache.get(t.key).tile, t);
+  if(mv.patch && cam.s > mv.sqImg.scale*0.7) mvTile(g, cam, mv.patch.img, mv.patch);
 }
 function mvBox(g, cam, b, alpha, k){
   if(alpha <= 0) return;
@@ -2744,12 +2820,12 @@ function mvFrame(t){
   const timg = z => { const im = mv.timg.get(z); if(!im) need = z; return im || mv.timg.get(z0) || null; };
   if(P.hasAtlas && t < P.tB){
     const cm = cam(P.full.x, P.full.y, P.full.s, P.f0);
-    mvScene(g, cm); mvBox(g, cm, mv.sqBox, mvEase((t - 1)/0.8), k); mvTitle(g, k, L[0][0], L[0][1], 1); mvBar(g, k, 1000/cm.s, P.MW - 60*k, P.MH - 60*k);
+    mvScene(g, cm); mvBox(g, cm, mv.sqBox, mvEase((t - Math.min(1, P.tB/3))/0.8), k); mvTitle(g, k, L[0][0], L[0][1], 1); mvBar(g, k, 1000/cm.s, P.MW - 60*k, P.MH - 60*k);
   } else if(P.hasAtlas && t < P.tC){
-    const tb = t - P.tB, u = tb/4, z = mvZoomCam(u, [P.full.x, P.full.y], P.full.s, P.sqC, P.zSq), cm = cam(z.x, z.y, z.s, P.f0 + (P.fEnd - P.f0)*mvEase(u));
+    const tb = (t - P.tB)*4/P.TB, u = tb/4, z = mvZoomCam(u, [P.full.x, P.full.y], P.full.s, P.sqC, P.zSq), cm = cam(z.x, z.y, z.s, P.f0 + (P.fEnd - P.f0)*mvEase(u));
     mvScene(g, cm); mvBox(g, cm, mv.sqBox, 1 - mvEase((tb - 2.6)/1.0), k); mvTitle(g, k, L[0][0], L[0][1], 1); mvBar(g, k, 1000/cm.s, P.MW - 60*k, P.MH - 60*k);
   } else if(t < P.tD){
-    const tc = t - P.tC, cm = cam(P.sqC[0], P.sqC[1], P.zSq, P.fEnd);
+    const tc = (t - P.tC)*2/P.TS, cm = cam(P.sqC[0], P.sqC[1], P.zSq, P.fEnd);
     mvScene(g, cm);
     if(P.hasAtlas && tc < 0.8) mvTitle(g, k, L[0][0], L[0][1], 1 - mvEase(tc/0.8)); else mvTitle(g, k, L[1][0], L[1][1], P.hasAtlas ? mvEase((tc - 0.8)/0.8) : 1);
     mvBar(g, k, 1000/cm.s, P.MW - 60*k, P.MH - 60*k);
@@ -2795,8 +2871,17 @@ function mvForm(){
     <h4>Camera</h4>
     <div class="fields">
       <label class="field">Final zoom ×<input type="number" id="mvZoom" min="1" max="60" step="1" value="${c.zoom}"></label>
-      <label class="field">Hold on target (s)<input type="number" id="mvHold" min="0" max="20" step="0.5" value="${c.hold}"></label>
+      <label class="field">Extra turn at start (°)<input type="number" id="mvTurn" step="90" value="${c.turn}"></label>
+      <label class="check full"><input type="checkbox" id="mvLevel" ${c.level ? "checked" : ""}> Start with the atlas level</label>
       <label class="check full"><input type="checkbox" id="mvUpright" ${c.upright ? "checked" : ""}> Turn so the square map ends upright</label>
+    </div>
+    <h4>Timing (seconds)</h4>
+    <div class="fields">
+      <label class="field">Atlas<input type="number" id="mvTAtlas" min="0.5" max="30" step="0.5" value="${c.tAtlas}"></label>
+      <label class="field">Zoom to square<input type="number" id="mvTToSq" min="0.5" max="30" step="0.5" value="${c.tToSq}"></label>
+      <label class="field">Square map<input type="number" id="mvTSq" min="0.5" max="30" step="0.5" value="${c.tSq}"></label>
+      <label class="field">Zoom to target<input type="number" id="mvTToTg" min="0.5" max="30" step="0.5" value="${c.tToTg}"></label>
+      <label class="field">Hold on target<input type="number" id="mvHold" min="0" max="20" step="0.5" value="${c.hold}"></label>
     </div>
     <h4>Tilt series playback</h4>
     <div class="fields">
@@ -2816,7 +2901,8 @@ function mvForm(){
 function mvRead(){
   const c = mv.cfg, n = (id, d) => { const v = Number($(id).value); return isFinite(v) ? v : d; };
   document.querySelectorAll("#mvSide [data-lab]").forEach(el => { const [i, j] = el.dataset.lab.split(":").map(Number); c.labels[i][j] = el.value; });
-  Object.assign(c, {zoom: Math.max(1, n("#mvZoom", 6)), hold: Math.max(0, n("#mvHold", 3)), upright: $("#mvUpright").checked, start: n("#mvStart", 0), tiltFps: Math.max(1, n("#mvTfps", 10)),
+  Object.assign(c, {zoom: Math.max(1, n("#mvZoom", 6)), hold: Math.max(0, n("#mvHold", 3)), upright: $("#mvUpright").checked, level: $("#mvLevel").checked, turn: n("#mvTurn", 0),
+    tAtlas: n("#mvTAtlas", 3), tToSq: n("#mvTToSq", 4), tSq: n("#mvTSq", 2), tToTg: n("#mvTToTg", 4), start: n("#mvStart", 0), tiltFps: Math.max(1, n("#mvTfps", 10)),
     low: n("#mvLow", -60), high: n("#mvHigh", 60), first: $("#mvFirst").value, schematic: $("#mvSchem").checked, size: $("#mvSize").value, fps: Number($("#mvFps").value) || 30});
   if(c.low > c.high) [c.low, c.high] = [c.high, c.low];
   mvSaveCfg();
@@ -2833,6 +2919,41 @@ $("#mvPlay").addEventListener("click", () => { if(mv && !mv.busy) mvPlay(!mv.pla
 $("#mvClose").addEventListener("click", () => $("#mvDlg").close());
 $("#mvDlg").addEventListener("close", () => { if(mv){ mv.cancel = true; mv.playing = false; if(mv.movieId && mv.busy) fetch(`api/movie/cancel?id=${mv.movieId}`, {method: "POST"}).catch(() => {}); } });
 $("#mvDlg").addEventListener("cancel", e => { if(mv && mv.busy){ e.preventDefault(); mv.cancel = true; } });
+// minimal WebM writer for frames encoded in the browser (VP8 or VP9), with exact time stamps
+function mvWebm(chunks, codecId, w, h, fps){
+  const cat = arrs => { const n = arrs.reduce((a, x) => a + x.length, 0), o = new Uint8Array(n); let k = 0; for(const x of arrs){ o.set(x, k); k += x.length; } return o; };
+  const uint = v => { const b = []; do { b.unshift(v % 256); v = Math.floor(v/256); } while(v > 0); return Uint8Array.from(b); };
+  const f64 = v => { const b = new Uint8Array(8); new DataView(b.buffer).setFloat64(0, v); return b; };
+  const str = t => new TextEncoder().encode(t);
+  const size = n => { const b = new Uint8Array(8); b[0] = 1; let v = n; for(let i = 7; i > 0; i--){ b[i] = v % 256; v = Math.floor(v/256); } return b; };
+  const el = (id, body) => { const d = body instanceof Uint8Array ? body : cat(body); return cat([Uint8Array.from(id), size(d.length), d]); };
+  const ms = us => Math.round(us/1000), dur = chunks.length*1000/fps;
+  const head = el([0x1A,0x45,0xDF,0xA3], [el([0x42,0x86], uint(1)), el([0x42,0xF7], uint(1)), el([0x42,0xF2], uint(4)), el([0x42,0xF3], uint(8)), el([0x42,0x82], str("webm")), el([0x42,0x87], uint(2)), el([0x42,0x85], uint(2))]);
+  const info = el([0x15,0x49,0xA9,0x66], [el([0x2A,0xD7,0xB1], uint(1000000)), el([0x4D,0x80], str("mdoc Stage Map")), el([0x57,0x41], str("mdoc Stage Map")), el([0x44,0x89], f64(dur))]);
+  const tracks = el([0x16,0x54,0xAE,0x6B], el([0xAE], [el([0xD7], uint(1)), el([0x73,0xC5], uint(1)), el([0x9C], uint(0)), el([0x86], str(codecId)), el([0x83], uint(1)), el([0x23,0xE3,0x83], uint(Math.round(1e9/fps))),
+    el([0xE0], [el([0xB0], uint(w)), el([0xBA], uint(h))])]));
+  const clusters = []; let cur = null, t0 = 0;
+  for(const c of chunks){
+    const t = ms(c.t);
+    if(!cur || c.key || t - t0 > 30000){ if(cur) clusters.push(el([0x1F,0x43,0xB6,0x75], cur)); t0 = t; cur = [el([0xE7], uint(t))]; }
+    const rel = t - t0, hd = Uint8Array.from([0x81, (rel >> 8) & 255, rel & 255, c.key ? 0x80 : 0]);
+    cur.push(el([0xA3], cat([hd, c.data])));
+  }
+  if(cur) clusters.push(el([0x1F,0x43,0xB6,0x75], cur));
+  return new Blob([head, el([0x18,0x53,0x80,0x67], [info, tracks, ...clusters])], {type: "video/webm"});
+}
+async function mvBrowserCodec(w, h, fps){
+  if(!window.VideoEncoder || !window.VideoFrame) return null;
+  for(const [codec, id] of [["vp8", "V_VP8"], ["vp09.00.40.08", "V_VP9"], ["vp09.00.51.08", "V_VP9"]]){
+    try { const cfg = {codec, width: w, height: h, bitrate: w*h >= 3840*2160 ? 40e6 : 16e6, framerate: fps}; if((await VideoEncoder.isConfigSupported(cfg)).supported) return {cfg, id}; } catch(e){}
+  }
+  return null;
+}
+function mvEncoderNote(){
+  const el = $("#mvEnc"); if(!el) return;
+  el.textContent = data.server && data.server.ffmpeg ? "Encoding: ffmpeg on the server → .mp4"
+    : `Encoding: in this browser → .webm (${!data.server ? "no server" : data.server.ffmpeg === false ? "ffmpeg was not found on the server; start it with --ffmpeg PATH for .mp4" : "the server is an older mdoc_server.py; restart it with the new version for .mp4"})`;
+}
 const mvName = () => `${baseName(mv.it.doc.name)}_acquisition_movie`;
 async function mvRender(){
   if(!mv || !mv.ready || mv.busy) return;
@@ -2862,23 +2983,45 @@ async function mvRender(){
       out.innerHTML = `<a class="btn small primary" href="api/movie/file?id=${id}" download="${esc(mvName())}.mp4">Download .mp4 (${(ej.size/1e6).toFixed(1)} MB)</a>${data.server.write ? ` <button class="btn small" type="button" id="mvSaveSrv">Save on the server…</button>` : ""}`;
       mvSay(`Done: ${ej.frames} frames, ${P.total.toFixed(1)} s, encoded with ${j.encoder}.`);
     } else {
-      // no ffmpeg on the server: the browser records the canvas while the frames are drawn in real time
-      const type = ["video/mp4;codecs=avc1.640028", "video/webm;codecs=vp9", "video/webm"].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
-      if(!type) throw new Error("this browser cannot record video, and the server has no ffmpeg.");
-      const stream = self.canvas.captureStream(0), track = stream.getVideoTracks()[0], rec = new MediaRecorder(stream, {mimeType: type, videoBitsPerSecond: 16e6}), chunks = [];
-      rec.ondataavailable = ev => { if(ev.data.size) chunks.push(ev.data); };
-      const stopped = new Promise(res => rec.onstop = res);
-      rec.start(); const t0 = performance.now();
-      for(let i = 0; i < n; i++){
-        if(self.cancel){ rec.stop(); throw new Error("cancelled"); }
-        mvFrame(i/c.fps); track.requestFrame();
-        if(i % 5 === 0) prog(`Recording frame ${i + 1} of ${n} (real time)…`, 0.15 + 0.84*i/n);
-        await new Promise(res => setTimeout(res, Math.max(0, t0 + (i + 1)*1000/c.fps - performance.now())));
+      // no ffmpeg on the server: encode in the browser, frame by frame with exact time stamps, into a .webm
+      const bc = await mvBrowserCodec(P.MW, P.MH, c.fps);
+      if(bc){
+        const chunks = []; let failed = null;
+        const enc = new VideoEncoder({output: ch => { const d = new Uint8Array(ch.byteLength); ch.copyTo(d); chunks.push({t: ch.timestamp, key: ch.type === "key", data: d}); }, error: e => { failed = e; }});
+        enc.configure(bc.cfg);
+        for(let i = 0; i < n; i++){
+          if(self.cancel){ try { enc.close(); } catch(e){} throw new Error("cancelled"); }
+          if(failed) throw failed;
+          mvFrame(i/c.fps);
+          const vf = new VideoFrame(self.canvas, {timestamp: Math.round(i*1e6/c.fps), duration: Math.round(1e6/c.fps)});
+          enc.encode(vf, {keyFrame: i % Math.round(c.fps) === 0}); vf.close();
+          while(enc.encodeQueueSize > 4) await new Promise(res => setTimeout(res, 5));
+          if(i % 5 === 0){ prog(`Rendering frame ${i + 1} of ${n}…`, 0.15 + 0.84*i/n); await new Promise(res => setTimeout(res, 0)); }
+        }
+        await enc.flush(); enc.close(); if(failed) throw failed;
+        chunks.sort((a, b) => a.t - b.t);
+        const blob = mvWebm(chunks, bc.id, P.MW, P.MH, c.fps);
+        out.innerHTML = `<a class="btn small primary" href="${URL.createObjectURL(blob)}" download="${esc(mvName())}.webm">Download .webm (${(blob.size/1e6).toFixed(1)} MB)</a>`;
+        mvSay(`Done: ${chunks.length} frames, ${P.total.toFixed(1)} s, encoded in the browser as WebM. For .mp4, run the server where ffmpeg is installed.`);
+      } else {
+        // last resort: record the canvas while the frames are drawn. The speed is only right if drawing keeps up.
+        const type = ["video/mp4;codecs=avc1.640028", "video/webm;codecs=vp9", "video/webm"].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
+        if(!type) throw new Error("this browser cannot encode video, and the server has no ffmpeg.");
+        const stream = self.canvas.captureStream(0), track = stream.getVideoTracks()[0], rec = new MediaRecorder(stream, {mimeType: type, videoBitsPerSecond: 16e6}), chunks = [];
+        rec.ondataavailable = ev => { if(ev.data.size) chunks.push(ev.data); };
+        const stopped = new Promise(res => rec.onstop = res);
+        rec.start(); const t0 = performance.now();
+        for(let i = 0; i < n; i++){
+          if(self.cancel){ rec.stop(); throw new Error("cancelled"); }
+          mvFrame(i/c.fps); track.requestFrame();
+          if(i % 5 === 0) prog(`Recording frame ${i + 1} of ${n} (real time)…`, 0.15 + 0.84*i/n);
+          await new Promise(res => setTimeout(res, Math.max(0, t0 + (i + 1)*1000/c.fps - performance.now())));
+        }
+        rec.stop(); await stopped;
+        const took = (performance.now() - t0)/1000, blob = new Blob(chunks, {type}), ext = type.startsWith("video/mp4") ? "mp4" : "webm";
+        out.innerHTML = `<a class="btn small primary" href="${URL.createObjectURL(blob)}" download="${esc(mvName())}.${ext}">Download .${ext} (${(blob.size/1e6).toFixed(1)} MB)</a>`;
+        mvSay(`Done, recorded in real time: ${took.toFixed(1)} s for a ${P.total.toFixed(1)} s movie${took > P.total*1.1 ? ", so it plays too slowly. Use a smaller size, or run the server where ffmpeg is installed" : ""}.`, took > P.total*1.1);
       }
-      rec.stop(); await stopped;
-      const blob = new Blob(chunks, {type}), ext = type.startsWith("video/mp4") ? "mp4" : "webm";
-      out.innerHTML = `<a class="btn small primary" href="${URL.createObjectURL(blob)}" download="${esc(mvName())}.${ext}">Download .${ext} (${(blob.size/1e6).toFixed(1)} MB)</a>`;
-      mvSay(`Done. Recorded in the browser${data.server ? " because the server has no ffmpeg" : ""}; with ffmpeg on the server the result is an exact-timing .mp4.`);
     }
   } catch(e){
     if(self.movieId){ fetch(`api/movie/cancel?id=${self.movieId}`, {method: "POST"}).catch(() => {}); self.movieId = null; }

@@ -664,10 +664,11 @@ function buildLayer(L){
   // tilt series named in an open PACEtomo _tgts.txt sit at their target (unless placed by hand)
   if((L.type === "exposure" || L.type === "tilt") && PACE.length){
     for(const it of L.items){
-      if(it.refined) continue;
       const hit = paceMatch(it); if(!hit) continue;
+      it.pace = hit;
+      if(it.refined) continue;                     // aligned on its own: keeps its own position, stays in the group
       const p = paceTargetPos(hit.g, hit.t), pr = hit.g.prev[hit.t.no];
-      it.cx = p[0]; it.cy = p[1]; it.pace = hit;
+      it.cx = p[0]; it.cy = p[1];
       if(pr && pr.ok){ it.rot = pr.rot; it.flip = hit.g.flip; }
       else if(hit.g.anchored){ it.rot = paceRot(hit.g); it.flip = hit.g.flip; }
     }
@@ -773,6 +774,7 @@ async function openFiles(fileList, forced){
     catch(e){ setMsg(`Could not read ${f.name}.`); }
   }
   const n = loadDocs(docs, forced);
+  paceAdopt();
   const withImg = attachImages(docs);
   const missing = docs.filter(d => mrcCandidates(d).length && !pairedLocally(d)).length;
   setMsg(`Loaded ${docs.length} mdoc file${docs.length===1?"":"s"} into ${n} layer${n===1?"":"s"}` + (withImg ? `; images on for ${withImg}.` : ".") + (missing && !data.folder && !data.server ? ` ${missing} without its .mrc.` : ""));
@@ -895,11 +897,34 @@ async function openPaths(list, forcedType, opts){
   else loadDocs(docs, forced, true);
   setMsg(docs.length === 1 ? `Opened ${baseName(docs[0].name)}.` : `Opened ${docs.length} mdoc files.`);
   renderLayers(); renderDataList();
-  if(opts.quiet){ render(); return docs; }
+  if(opts.quiet){ paceAdopt(); render(); return docs; }
+  paceAdopt();
   if(!hadItems) fitView(); 
   else if(docs.length === 1) { const its = state.layers.flatMap(L => L.items.filter(it => it.doc === docs[0])); if(its.length) animateTo(viewFor(its)); }
   render();
   return docs;
+}
+// tilt series whose names match an open _tgts.txt join that group's layer, however and whenever they were opened
+function paceAdopt(){
+  if(!PACE.length) return 0;
+  let moved = 0;
+  for(const L of [...state.layers]){
+    if(L.paceKey || (L.type !== "tilt" && L.type !== "exposure")) continue;
+    const by = new Map();
+    for(const it of L.items){ const hit = paceMatch(it); if(hit) by.set(it.doc, hit.g); }
+    if(!by.size) continue;
+    for(const [doc, g] of by){
+      let G = state.layers.find(x => x.paceKey === g.key);
+      if(!G){ G = addLayer("tilt", [], `${g.root || g.name} · tilt series`); G.paceKey = g.key; G.mergeable = false; }
+      L.docs = L.docs.filter(d => d !== doc); G.docs.push(doc);
+      if(L.loadImages && !G.loadImages) G.loadImages = true;
+      moved++;
+    }
+    for(const G of state.layers.filter(x => x.paceKey)){ buildLayer(G); if(G.loadImages) startImages(G); }
+    if(L.docs.length) buildLayer(L); else state.layers = state.layers.filter(x => x !== L);
+  }
+  if(moved){ if(state.selected && !state.layers.includes(state.selected.L)) state.selected = null; renderLayers(); }
+  return moved;
 }
 async function detectServer(){
   if(location.protocol !== "http:" && location.protocol !== "https:") return;
@@ -1074,12 +1099,14 @@ async function findMrc(doc){
   const cands = mrcCandidates(doc);
   if(!cands.length) throw new Error(/\.(tif|tiff|eer)\.mdoc$/i.test(doc.src.path || doc.name) ? "Frame mdocs (.tif/.eer) have no MRC image to show." : `${baseName(doc.name)}: no MRC file name to look for.`);
   if(doc.src.kind === "server"){
+    const why = [];
     for(const c of cands){
       const path = c.dir + c.name;
       const r = await fetch(`api/stat?path=${encodeURIComponent(path)}`, {cache: "no-store"});
+      if(!r.ok){ const j = await r.json().catch(() => ({})); if(j.error && j.error !== "Not found.") why.push(j.error); }
       if(r.ok) return {label: path, path, read: (a, b) => fetch(`api/file?path=${encodeURIComponent(path)}`, {headers: {Range: `bytes=${a}-${b-1}`}}).then(r => { if(!r.ok && r.status !== 206) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })};
     }
-    throw new Error(`${cands.map(c => c.name).join(" or ")} not found next to the mdoc on the server.`);
+    throw new Error(why.length ? why.join(" ") : `${cands.map(c => c.name).join(" or ")} not found next to the mdoc on the server.`);
   }
   const fileHandle = (f, label) => ({label, read: (a, b) => f.slice(a, b).arrayBuffer()});
   if(data.folder){
@@ -1092,7 +1119,7 @@ async function findMrc(doc){
   }
   for(const c of cands){ const f = data.extra.get(c.name.toLowerCase()); if(f) return fileHandle(f, c.name); }
   const names = cands.map(c => c.name).join(" or ");
-  throw new Error(data.folder ? `${names} is not in the data folder.` : `Choose a data folder, or select ${names} with the mdoc.`);
+  throw new Error(data.folder ? `${names} is not in the data folder. If it is a symbolic link: browsers leave links out of a chosen folder, so run the viewer from mdoc_server.py, which follows them.` : `Choose a data folder, or select ${names} with the mdoc.`);
 }
 const MODE_BYTES = {0: 1, 1: 2, 2: 4, 6: 2, 12: 2};
 function getHeader(doc){
@@ -2141,6 +2168,7 @@ function openCtxMenu(p){
       [`Align by correlation (shift + rotation ±${ROT_SPAN}°)`, () => anchorPace(pg, true), !pg.view || pg.busy],
       ["Refine targets inside the View", () => refinePace(pg), !pg.view || pg.busy],
       ["Find new tilt series", () => openPaceTS(pg)],
+      ["Make PACEtomo movie…", () => mvOpenPace(pg), !pg.view],
       ["Reset alignment", () => resetPace(pg), pg.busy]]});
     if(isImgItem(it)) groups.push({hd: `${it.L.type === "tilt" ? "Tilt series" : "Exposure"} · ${it.label}`, items: [
       ["Zoom to this image", () => zoomItem(it)],
@@ -2256,7 +2284,7 @@ async function openPace(kind, path, text){
   const missing = targets.filter(x => !x.stage).length;
   if(missing) g.err = `${missing} target${missing === 1 ? "" : "s"} without stageX/stageY are not shown.`;
   PACE.push(g);
-  renderPace(); rebuildKeepFocus();
+  rebuildKeepFocus(); paceAdopt(); renderPace();
   loadPaceView(g).then(() => loadPacePreviews(g));
   if(kind !== "file") openPaceGroup(g);
   return g;
@@ -2505,7 +2533,7 @@ function drawPace(){
       if(g.showImg && pv && pv.canvas){ if(ghostPace(g)) ghostOn(); drawTile({tile: pv.canvas}, {cx: p[0], cy: p[1], w: pv.w, h: pv.h, rot: pr && pr.ok ? pr.rot : paceRot(g), flip: g.flip}, s); ghostOff(); }
       // the circle goes around the image at the target: half its diagonal, never smaller than a visible dot
       const diag = Math.max(pv && pv.canvas ? Math.hypot(pv.w, pv.h) : 0, ts ? Math.hypot(ts.w, ts.h) : 0);
-      const [x, y] = toScreen(...p), r = Math.max(5, diag > 0 ? diag/2*s + 2 : Math.min(14, 0.3*s));
+      const [x, y] = toScreen(...(ts && ts.refined ? [ts.cx, ts.cy] : p)), r = Math.max(5, diag > 0 ? diag/2*s + 2 : Math.min(14, 0.3*s));
       t.hit = {x, y, r};
       ctx.strokeStyle = g.color; ctx.lineWidth = state.paceTgt && state.paceTgt.t === t ? 3 : 1.5; ctx.setLineDash(t.skip ? [2, 2] : []);
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
@@ -2522,8 +2550,9 @@ function drawPace(){
 // Uses the positions as aligned in the viewer. Frames are drawn on a canvas; the server's ffmpeg encodes them
 // (or, without it, the browser records the canvas in real time).
 const MV_KEY = "mdocStageMap.movie";
-const MV_DEF = {size: "1920x1080", fps: 30, zoom: 6, tAtlas: 3, tToSq: 4, tSq: 2, tToTg: 4, hold: 3, tiltFps: 10, schematic: true, upright: true, level: true, turn: 0, first: "low",
-  labels: [["Atlas", "Grid overview"], ["Square map", "Selecting the acquisition position"], ["Acquisition position", "Tilt-series target"], ["Tilt series", ""]]};
+const MV_DEF = {size: "1920x1080", fps: 30, zoom: 6, tAtlas: 3, tToSq: 4, tSq: 2, tToTg: 4, hold: 3, tToView: 3, tPick: 0.8, viewZoom: 1, tiltFps: 10, schematic: true, upright: true, level: true, turn: 0, first: "low",
+  labels: [["Atlas", "Grid overview"], ["Square map", "Selecting the acquisition position"], ["Acquisition position", "Tilt-series target"], ["Tilt series", ""]],
+  pLabels: [["Atlas", "Grid overview"], ["Square map", "Selecting the area"], ["Target selection", ""], ["Tilt series", ""]]};
 let mv = null;
 const mvEase = t => { t = Math.max(0, Math.min(1, t)); return t*t*(3 - 2*t); };
 const mvPt = (cam, x, y) => { const c = Math.cos(cam.f), sn = Math.sin(cam.f), dx = (x - cam.x)*cam.s, dy = ys()*(y - cam.y)*cam.s; return [cam.W/2 + dx*c + dy*sn, cam.H/2 - dx*sn + dy*c]; };
@@ -2531,7 +2560,8 @@ const mvCorners = b => { const r = b.rot*Math.PI/180, c = Math.cos(r), s = Math.
 function mvCfg(){
   let sv = {}; try { sv = JSON.parse(localStorage.getItem(MV_KEY) || "{}") || {}; } catch(e){}
   const c = {...MV_DEF, ...sv};
-  c.labels = MV_DEF.labels.map((d, i) => Array.isArray(sv.labels && sv.labels[i]) ? [String(sv.labels[i][0] ?? d[0]), String(sv.labels[i][1] ?? d[1])] : d.slice());
+  const labs = (key) => MV_DEF[key].map((d, i) => Array.isArray(sv[key] && sv[key][i]) ? [String(sv[key][i][0] ?? d[0]), String(sv[key][i][1] ?? d[1])] : d.slice());
+  c.labels = labs("labels"); c.pLabels = labs("pLabels");
   return c;
 }
 function mvSaveCfg(){ const {start, low, high, zoom, tToTg, ...keep} = mv.cfg; try { localStorage.setItem(MV_KEY, JSON.stringify(keep)); } catch(e){} }
@@ -2563,12 +2593,13 @@ async function mvOpen(it){
   if(!it || it.L.type !== "tilt") return setMsg("Choose a tilt series first.");
   if(mv && mv.busy) return;
   const dlg = $("#mvDlg");
-  mv = {it, cfg: mvCfg(), t: 0, ready: false, timg: new Map(), loading: new Set(), status: "", canvas: $("#mvCanvas")};
+  mv = {kind: "single", it, cfg: mvCfg(), t: 0, ready: false, timg: new Map(), loading: new Set(), status: "", canvas: $("#mvCanvas")};
   mv.g = mv.canvas.getContext("2d");
   mv.tilts = mvTilts(it.doc);
   const an = mv.tilts.secs.map(x => x.a);
   Object.assign(mv.cfg, {start: Math.round(mv.tilts.start), low: Math.floor(Math.min(...an)), high: Math.ceil(Math.max(...an))});
   mv.seq = mvSeq();
+  $("#mvTitle").textContent = "Acquisition movie";
   mvForm(); mvEncoderNote(); if(!dlg.open) dlg.showModal();
   mvSay("Loading the atlas, the square map and the tilt image…");
   try {
@@ -2645,9 +2676,9 @@ function mvFrameBox(tiles){        // the box around tiles, in their own (shared
   return {cx: o.cx + um*c0 - vm*s0, cy: o.cy + um*s0 + vm*c0, w: u1 - u0, h: v1 - v0, rot: o.rot};
 }
 async function mvPrepare(){
-  const it = mv.it, self = mv;
+  const self = mv, it = mv.kind === "pace" ? paceViewBox(mv.grp) : mv.it;
   const sq = squareFor(it.cx, it.cy);
-  if(!sq) throw new Error("no square map under this tilt series. Open the square map and its .mrc first.");
+  if(!sq) throw new Error(`no square map under this ${mv.kind === "pace" ? "View" : "tilt series"}. Open the square map and its .mrc first.`);
   const atlasL = state.layers.find(L => L.type === "atlas" && L.visible && canLoad(L));
   if(atlasL){ if(!atlasL.loadImages){ atlasL.loadImages = true; renderLayers(); } await Promise.all(atlasL.montages.map(m => ensureMontage(atlasL, m))); }
   const {parts} = await squareParts(sq.L, sq.m.key);            // loads the montage
@@ -2669,7 +2700,7 @@ async function mvPrepare(){
   self.sqImg = await mvSquareImage(parts, self.sqBox, 4096, range, 0, (i, n) => mvSay(`Blending the square map: piece ${i + 1} of ${n}…`));
   // close-up: the area around the target at the pieces' own resolution, faded into the map at its edge
   self.patch = null;
-  const side = Math.max(6*Math.max(it.w, it.h), 4), pb = {cx: it.cx, cy: it.cy, w: Math.min(side*1.8, self.sqBox.w), h: Math.min(side*1.8, self.sqBox.h), rot: self.sqBox.rot};
+  const side = mv.kind === "pace" ? Math.max(it.w, it.h)*0.8 : Math.max(6*Math.max(it.w, it.h), 4), pb = {cx: it.cx, cy: it.cy, w: Math.min(side*1.8, self.sqBox.w), h: Math.min(side*1.8, self.sqBox.h), rot: self.sqBox.rot};
   const near = parts.filter(p => Math.abs(p.cx - it.cx) < (Math.hypot(p.w, p.h) + Math.hypot(pb.w, pb.h))/2 && Math.abs(p.cy - it.cy) < (Math.hypot(p.w, p.h) + Math.hypot(pb.w, pb.h))/2)
     .sort((a, b) => Math.hypot(a.cx - it.cx, a.cy - it.cy) - Math.hypot(b.cx - it.cx, b.cy - it.cy)).slice(0, 6);
   if(near.length && self.sqImg){
@@ -2678,15 +2709,21 @@ async function mvPrepare(){
     if(pt && pt.scale > self.sqImg.scale*1.3) self.patch = pt;
   }
   self.hi = self.patch ? [self.patch] : [];
-  await mvTiltImg(mv.seq.length ? mv.seq[0].z : Number(it.sec.index));
+  if(mv.kind !== "pace") await mvTiltImg(mv.seq.length ? mv.seq[0].z : Number(it.sec.index));
 }
-async function mvTiltImg(z){
-  const self = mv;
-  if(self.timg.has(z)) return self.timg.get(z);
-  const h = await getHeader(self.it.doc), r = await loadSection(self.it.doc, z, Math.max(1, Math.ceil(Math.max(h.nx, h.ny)/1024)));
+const mvKey = (doc, z, px) => `${doc.id}|${z}|${px}`;
+async function mvTiltImg(z, doc, px){
+  const self = mv; doc = doc || self.it.doc; px = px || 1024;
+  const key = mvKey(doc, z, px);
+  if(self.timg.has(key)) return self.timg.get(key);
+  const h = await getHeader(doc), r = await loadSection(doc, z, Math.max(1, Math.ceil(Math.max(h.nx, h.ny)/px)));
   const c = makeTile(r.raw, r.bw, r.bh, r.lo, r.hi);
-  self.timg.set(z, c); return c;
+  self.timg.set(key, c);
+  while(self.cacheMax && self.timg.size > self.cacheMax) self.timg.delete(self.timg.keys().next().value);   // oldest first
+  return c;
 }
+// draw frame t, reading every tilt image it needs first (used when rendering, so no frame shows a stand-in)
+async function mvDraw(t){ let need, guard = 0; while((need = mvFrame(t)) && guard++ < 200) await mvTiltImg(...need); }
 // camera path and timeline
 function mvPlan(){
   const c = mv.cfg, [MW, MH] = c.size.split("x").map(Number), it = mv.it, sq = mv.sqBox;
@@ -2709,6 +2746,7 @@ function mvPlan(){
   const Ps = mvCorners(sq).map(p => mvPt({...cam0, f: fEnd}, p[0], p[1])), sw = Math.max(...Ps.map(p => p[0])) - Math.min(...Ps.map(p => p[0])), sh = Math.max(...Ps.map(p => p[1])) - Math.min(...Ps.map(p => p[1]));
   const zSq = 0.97*Math.min(MW/sw, MH/sh), zTg = zSq*Math.max(1, c.zoom);
   const ZT = Math.max(0.5, c.tToTg || 4), TB = Math.max(0.5, c.tToSq), TS = Math.max(0.5, c.tSq);
+  if(mv.kind === "pace") return mvPlanPace({MW, MH, k, f0, fEnd, full, zSq, TB, TS, hasAtlas, sq, cam0});
   const camEnd = {x: it.cx, y: it.cy, s: zTg, f: fEnd, W: MW, H: MH};
   // tilt inset: from its footprint on the map to half the frame
   const a0 = ys()*it.rot*Math.PI/180 - fEnd, a1 = Math.round(a0/(Math.PI/2))*(Math.PI/2), odd = Math.abs(Math.round(a1/(Math.PI/2))) % 2 === 1;
@@ -2797,6 +2835,18 @@ function mvSchematic(g, k, cx, cy, ang, al){
   }
   g.restore();
 }
+// the angle as a number, and a dot on a track from the lowest to the highest angle
+function mvAngleBar(g, k, xs, y0, angle){
+  const c = mv.cfg, ff = getFont("--font-body") || "sans-serif";
+  g.font = `600 ${40*k}px ${ff}`;
+  const lw = Math.max(...["−60°", "+60°", "−00°"].map(t => g.measureText(t).width));
+  mvRound(g, xs, y0, lw + 36*k, 62*k, 14*k, "rgba(0,0,0,0.67)");
+  g.fillStyle = "#fff"; g.textAlign = "right"; g.textBaseline = "middle"; g.fillText(mvDeg(angle), xs + lw + 18*k, y0 + 33*k);
+  const lo = Math.min(c.low, c.high), hi = Math.max(c.low, c.high), tx0 = xs + lw + 80*k, tx1 = xs + lw + 380*k, ty = y0 + 31*k, X = v => tx0 + (v - lo)/Math.max(1e-6, hi - lo)*(tx1 - tx0);
+  g.strokeStyle = "rgba(255,255,255,0.55)"; g.lineWidth = 3*k; g.beginPath(); g.moveTo(tx0, ty); g.lineTo(tx1, ty); g.stroke();
+  g.lineWidth = 2*k; for(const v of [lo, ...(lo < 0 && hi > 0 ? [0] : []), hi]){ g.beginPath(); g.moveTo(X(v), ty - 9*k); g.lineTo(X(v), ty + 9*k); g.stroke(); }
+  g.fillStyle = "rgb(255,200,40)"; g.beginPath(); g.arc(X(Math.max(lo, Math.min(hi, angle))), ty, 9*k, 0, Math.PI*2); g.fill();
+}
 function mvInset(u){ const n = mv.plan.inset, e = mvEase(u); return {s: n.s0*Math.pow(n.s1/n.s0, e), ang: n.a0 + (n.a1 - n.a0)*e, p: [n.p0[0] + (n.p1[0] - n.p0[0])*e, n.p0[1] + (n.p1[1] - n.p0[1])*e]}; }
 // the tilt image as an inset, with its angle label, angle track and the stage-tilt schematic
 function mvTiltFrame(g, img, ins, dim, angle, title, sub, ta, bar, schAng, schAlpha){
@@ -2812,27 +2862,14 @@ function mvTiltFrame(g, img, ins, dim, angle, title, sub, ta, bar, schAng, schAl
   const ca = Math.cos(ins.ang), sa = Math.sin(ins.ang), C = [[-1,-1],[1,-1],[1,1],[-1,1]].map(([i, j]) => [ins.p[0] + i*w/2*ca - j*h/2*sa, ins.p[1] + i*w/2*sa + j*h/2*ca]);
   const xs = Math.min(...C.map(p => p[0])), xr = Math.max(...C.map(p => p[0])), yb = Math.max(...C.map(p => p[1])), yc = C.reduce((a, p) => a + p[1], 0)/4;
   const ff = getFont("--font-body") || "sans-serif";
-  if(angle != null){
-    const y0 = yb + 22*k; g.font = `600 ${40*k}px ${ff}`;
-    const lw = Math.max(...["−60°", "+60°", "−00°"].map(t => g.measureText(t).width));
-    mvRound(g, xs, y0, lw + 36*k, 62*k, 14*k, "rgba(0,0,0,0.67)");
-    g.fillStyle = "#fff"; g.textAlign = "right"; g.textBaseline = "middle"; g.fillText(mvDeg(angle), xs + lw + 18*k, y0 + 33*k);
-    const lo = Math.min(c.low, c.high), hi = Math.max(c.low, c.high), tx0 = xs + lw + 80*k, tx1 = xs + lw + 380*k, ty = y0 + 31*k, X = v => tx0 + (v - lo)/Math.max(1e-6, hi - lo)*(tx1 - tx0);
-    g.strokeStyle = "rgba(255,255,255,0.55)"; g.lineWidth = 3*k; g.beginPath(); g.moveTo(tx0, ty); g.lineTo(tx1, ty); g.stroke();
-    g.lineWidth = 2*k; for(const v of [lo, ...(lo < 0 && hi > 0 ? [0] : []), hi]){ g.beginPath(); g.moveTo(X(v), ty - 9*k); g.lineTo(X(v), ty + 9*k); g.stroke(); }
-    g.fillStyle = "rgb(255,200,40)"; g.beginPath(); g.arc(X(Math.max(lo, Math.min(hi, angle))), ty, 9*k, 0, Math.PI*2); g.fill();
-  }
+  if(angle != null) mvAngleBar(g, k, xs, yb + 22*k, angle);
   if(c.schematic && schAng != null) mvSchematic(g, k, Math.min(P.MW - 170*k, xr + 190*k), yc, schAng, schAlpha);
   if(bar) mvBar(g, k, 1000/ins.s, xr - 20*k, yb - 24*k);
   mvTitle(g, k, title, sub, ta);
 }
-// draw the frame at time t (seconds); returns the tilt section it needs if that image is not loaded yet
-function mvFrame(t){
-  const P = mv.plan, c = mv.cfg, g = mv.g, k = P.k, it = mv.it, L = c.labels;
-  const cam = (x, y, s, f) => ({x, y, s, f, W: P.MW, H: P.MH});
-  const sub3 = L[3][1] || mvSchemeText(), z0 = mv.seq.length ? mv.seq[0].z : Number(it.sec.index), a0 = mv.seq.length ? mv.seq[0].a : 0;
-  let need = null;
-  const timg = z => { const im = mv.timg.get(z); if(!im) need = z; return im || mv.timg.get(z0) || null; };
+// atlas, zoom to the square map, square map: the same in both movies. Returns true if t falls in them.
+function mvSquareStages(g, t, P, L){
+  const k = P.k, cam = (x, y, s, f) => ({x, y, s, f, W: P.MW, H: P.MH});
   if(P.hasAtlas && t < P.tB){
     const cm = cam(P.full.x, P.full.y, P.full.s, P.f0);
     mvScene(g, cm, 0); mvBox(g, cm, mv.sqBox, mvEase((t - Math.min(1, P.tB/3))/0.8), k); mvTitle(g, k, L[0][0], L[0][1], 1); mvBar(g, k, 1000/cm.s, P.MW - 60*k, P.MH - 60*k);
@@ -2845,7 +2882,19 @@ function mvFrame(t){
     mvScene(g, cm, 1);
     if(P.hasAtlas && tc < 0.8) mvTitle(g, k, L[0][0], L[0][1], 1 - mvEase(tc/0.8)); else mvTitle(g, k, L[1][0], L[1][1], P.hasAtlas ? mvEase((tc - 0.8)/0.8) : 1);
     mvBar(g, k, 1000/cm.s, P.MW - 60*k, P.MH - 60*k);
-  } else if(t < P.tE){
+  } else return false;
+  return true;
+}
+// draw the frame at time t (seconds); returns [section, doc, size] of a tilt image it needs that is not loaded yet
+function mvFrame(t){
+  if(mv.kind === "pace") return mvFramePace(t);
+  const P = mv.plan, c = mv.cfg, g = mv.g, k = P.k, it = mv.it, L = c.labels;
+  const cam = (x, y, s, f) => ({x, y, s, f, W: P.MW, H: P.MH});
+  const sub3 = L[3][1] || mvSchemeText(), z0 = mv.seq.length ? mv.seq[0].z : Number(it.sec.index), a0 = mv.seq.length ? mv.seq[0].a : 0;
+  let need = null;
+  const timg = z => { const im = mv.timg.get(mvKey(it.doc, z, 1024)); if(!im) need = [z, it.doc, 1024]; return im || mv.timg.get(mvKey(it.doc, z0, 1024)) || null; };
+  if(mvSquareStages(g, t, P, L)) return null;
+  if(t < P.tE){
     const td = t - P.tD, ZT = P.ZT, z = mvZoomCam(td/ZT, P.sqC, P.zSq, [it.cx, it.cy], P.zTg), cm = cam(z.x, z.y, z.s, P.fEnd);
     mvScene(g, cm, 1); mvBox(g, cm, it, mvEase((td - ZT - 0.2)/0.6), k);
     if(td < ZT - 0.8) mvTitle(g, k, L[1][0], L[1][1], 1 - mvEase((td - ZT + 1.4)/0.6)); else mvTitle(g, k, L[2][0], L[2][1], mvEase((td - ZT + 0.8)/0.6));
@@ -2866,7 +2915,8 @@ function mvShow(t){
   const need = mvFrame(mv.t);
   const sl = $("#mvTime"); if(sl && document.activeElement !== sl) sl.value = mv.t;
   $("#mvClock").textContent = `${mv.t.toFixed(1)} / ${mv.plan.total.toFixed(1)} s`;
-  if(need != null && !mv.loading.has(need)){ const self = mv; self.loading.add(need); mvTiltImg(need).then(() => { if(mv === self && !self.busy && !self.playing) mvShow(self.t); }).catch(() => {}).finally(() => self.loading.delete(need)); }
+  const nk = need && mvKey(need[1], need[0], need[2]);
+  if(nk && !mv.loading.has(nk)){ const self = mv; self.loading.add(nk); mvTiltImg(...need).then(() => { if(mv === self && !self.busy && !self.playing) mvShow(self.t); }).catch(() => {}).finally(() => self.loading.delete(nk)); }
 }
 function mvPlay(on){
   if(!mv || !mv.ready) return;
@@ -2878,15 +2928,19 @@ function mvPlay(on){
   requestAnimationFrame(step);
 }
 function mvForm(){
-  const c = mv.cfg, opts = state.layers.filter(L => L.type === "tilt" && L.visible).flatMap(L => L.items);
-  const stage = ["Atlas", "Square map", "Acquisition position", "Tilt series"];
+  const c = mv.cfg, pace = mv.kind === "pace", labs = pace ? c.pLabels : c.labels;
+  const opts = state.layers.filter(L => L.type === "tilt" && L.visible).flatMap(L => L.items), areas = PACE.filter(g => g.visible && g.view);
+  const stage = pace ? ["Atlas", "Square map", "View and targets", "Tilt series"] : ["Atlas", "Square map", "Acquisition position", "Tilt series"];
+  const subPh = i => i === 3 ? (pace ? "Subtitle (empty = targets and angle scheme)" : "Subtitle (empty = the angle scheme)") : (pace && i === 2 ? "Subtitle (empty = Target 1 of N…)" : "Subtitle");
   $("#mvSide").innerHTML = `
-    <label class="field full">Tilt series<select id="mvSeries">${opts.map((x, i) => `<option value="${i}" ${x === mv.it ? "selected" : ""}>${esc(x.label)}</option>`).join("")}</select></label>
+    ${pace ? `<label class="field full">PACEtomo area<select id="mvArea">${areas.map((g, i) => `<option value="${i}" ${g === mv.grp ? "selected" : ""}>${esc(g.root || g.name)}</option>`).join("")}</select></label>`
+           : `<label class="field full">Tilt series<select id="mvSeries">${opts.map((x, i) => `<option value="${i}" ${x === mv.it ? "selected" : ""}>${esc(x.label)}</option>`).join("")}</select></label>`}
     <h4>Labels</h4>
-    ${stage.map((s, i) => `<div class="mvlab"><span>${i + 1}. ${s}</span><input type="text" data-lab="${i}:0" value="${esc(c.labels[i][0])}" placeholder="Title (empty = none)" aria-label="${s} title"><input type="text" data-lab="${i}:1" value="${esc(c.labels[i][1])}" placeholder="${i === 3 ? "Subtitle (empty = the angle scheme)" : "Subtitle"}" aria-label="${s} subtitle"></div>`).join("")}
+    ${stage.map((s, i) => `<div class="mvlab"><span>${i + 1}. ${s}</span><input type="text" data-lab="${i}:0" value="${esc(labs[i][0])}" placeholder="Title (empty = none)" aria-label="${s} title"><input type="text" data-lab="${i}:1" value="${esc(labs[i][1])}" placeholder="${subPh(i)}" aria-label="${s} subtitle"></div>`).join("")}
     <h4>Camera</h4>
     <div class="fields">
-      <label class="field">Final zoom ×<input type="number" id="mvZoom" min="1" max="60" step="1" value="${c.zoom}"></label>
+      ${pace ? `<label class="field" title="1 = the View and all targets just fit. Lower shows more of the square map around them.">View zoom ×<input type="number" id="mvVZoom" min="0.2" max="5" step="0.1" value="${c.viewZoom}"></label>`
+             : `<label class="field">Final zoom ×<input type="number" id="mvZoom" min="1" max="60" step="1" value="${c.zoom}"></label>`}
       <label class="field">Extra turn at start (°)<input type="number" id="mvTurn" step="90" value="${c.turn}"></label>
       <label class="check full"><input type="checkbox" id="mvLevel" ${c.level ? "checked" : ""}> Start with the atlas level</label>
       <label class="check full"><input type="checkbox" id="mvUpright" ${c.upright ? "checked" : ""}> Turn so the square map ends upright</label>
@@ -2896,8 +2950,10 @@ function mvForm(){
       <label class="field">Atlas<input type="number" id="mvTAtlas" min="0.5" max="30" step="0.5" value="${c.tAtlas}"></label>
       <label class="field">Zoom to square<input type="number" id="mvTToSq" min="0.5" max="30" step="0.5" value="${c.tToSq}"></label>
       <label class="field">Square map<input type="number" id="mvTSq" min="0.5" max="30" step="0.5" value="${c.tSq}"></label>
-      <label class="field">Zoom to target<input type="number" id="mvTToTg" min="0.5" max="30" step="0.5" value="${c.tToTg}"></label>
-      <label class="field">Hold on target<input type="number" id="mvHold" min="0" max="20" step="0.5" value="${c.hold}"></label>
+      ${pace ? `<label class="field">Zoom to View<input type="number" id="mvTToV" min="0.5" max="30" step="0.5" value="${c.tToView}"></label>
+      <label class="field">Per target<input type="number" id="mvTPick" min="0.2" max="10" step="0.1" value="${c.tPick}"></label>`
+      : `<label class="field">Zoom to target<input type="number" id="mvTToTg" min="0.5" max="30" step="0.5" value="${c.tToTg}"></label>
+      <label class="field">Hold on target<input type="number" id="mvHold" min="0" max="20" step="0.5" value="${c.hold}"></label>`}
     </div>
     <h4>Tilt series playback</h4>
     <div class="fields">
@@ -2915,16 +2971,18 @@ function mvForm(){
     </div>`;
 }
 function mvRead(){
-  const c = mv.cfg, n = (id, d) => { const v = Number($(id).value); return isFinite(v) ? v : d; };
-  document.querySelectorAll("#mvSide [data-lab]").forEach(el => { const [i, j] = el.dataset.lab.split(":").map(Number); c.labels[i][j] = el.value; });
-  Object.assign(c, {zoom: Math.max(1, n("#mvZoom", 6)), hold: Math.max(0, n("#mvHold", 3)), upright: $("#mvUpright").checked, level: $("#mvLevel").checked, turn: n("#mvTurn", 0),
-    tAtlas: n("#mvTAtlas", 3), tToSq: n("#mvTToSq", 4), tSq: n("#mvTSq", 2), tToTg: n("#mvTToTg", 4), start: n("#mvStart", 0), tiltFps: Math.max(1, n("#mvTfps", 10)),
+  const c = mv.cfg, n = (id, d) => { const el = $(id); if(!el) return d; const v = Number(el.value); return el.value !== "" && isFinite(v) ? v : d; };
+  const labs = mv.kind === "pace" ? c.pLabels : c.labels;
+  document.querySelectorAll("#mvSide [data-lab]").forEach(el => { const [i, j] = el.dataset.lab.split(":").map(Number); labs[i][j] = el.value; });
+  Object.assign(c, {zoom: Math.max(1, n("#mvZoom", c.zoom)), hold: Math.max(0, n("#mvHold", c.hold)), upright: $("#mvUpright").checked, level: $("#mvLevel").checked, turn: n("#mvTurn", 0),
+    tAtlas: n("#mvTAtlas", 3), tToSq: n("#mvTToSq", 4), tSq: n("#mvTSq", 2), tToTg: n("#mvTToTg", c.tToTg), tToView: n("#mvTToV", c.tToView), viewZoom: Math.max(0.2, n("#mvVZoom", c.viewZoom)), tPick: Math.max(0.2, n("#mvTPick", c.tPick)), start: n("#mvStart", 0), tiltFps: Math.max(1, n("#mvTfps", 10)),
     low: n("#mvLow", -60), high: n("#mvHigh", 60), first: $("#mvFirst").value, schematic: $("#mvSchem").checked, size: $("#mvSize").value, fps: Number($("#mvFps").value) || 30});
   if(c.low > c.high) [c.low, c.high] = [c.high, c.low];
   mvSaveCfg();
 }
 $("#mvSide").addEventListener("input", e => {
   if(!mv || mv.busy) return;
+  if(e.target.id === "mvArea"){ const g = PACE.filter(x => x.visible && x.view)[Number(e.target.value)]; mvPlay(false); return void mvOpenPace(g); }
   if(e.target.id === "mvSeries"){ const it = state.layers.filter(L => L.type === "tilt" && L.visible).flatMap(L => L.items)[Number(e.target.value)]; mvPlay(false); return void mvOpen(it); }
   mvRead(); if(!mv.ready) return;
   const frac = mv.plan.total ? mv.t/mv.plan.total : 0, isLab = !!e.target.dataset.lab;
@@ -2970,7 +3028,7 @@ function mvEncoderNote(){
   el.textContent = data.server && data.server.ffmpeg ? "Encoding: ffmpeg on the server → .mp4"
     : `Encoding: in this browser → .webm (${!data.server ? "no server" : data.server.ffmpeg === false ? "ffmpeg was not found on the server; start it with --ffmpeg PATH for .mp4" : "the server is an older mdoc_server.py; restart it with the new version for .mp4"})`;
 }
-const mvName = () => `${baseName(mv.it.doc.name)}_acquisition_movie`;
+const mvName = () => mv.kind === "pace" ? `${(mv.grp.root || mv.grp.name).replace(/[^\w.-]+/g, "_")}_pacetomo_movie` : `${baseName(mv.it.doc.name)}_acquisition_movie`;
 async function mvRender(){
   if(!mv || !mv.ready || mv.busy) return;
   const self = mv, c = self.cfg, btn = $("#mvRender"), out = $("#mvOut");
@@ -2978,7 +3036,7 @@ async function mvRender(){
   document.querySelectorAll("#mvSide input, #mvSide select, #mvTime, #mvPlay").forEach(el => el.disabled = true);
   const prog = (t, f) => { mvSay(t); $("#mvProg").value = f; $("#mvProg").hidden = false; };
   try {
-    const zs = [...new Set(self.seq.map(x => x.z))];
+    const zs = self.kind === "pace" ? [] : [...new Set(self.seq.map(x => x.z))];
     for(let i = 0; i < zs.length; i++){ if(self.cancel) throw new Error("cancelled"); prog(`Reading tilt image ${i + 1} of ${zs.length}…`, 0.15*i/zs.length); await mvTiltImg(zs[i]); }
     const P = self.plan, n = Math.round(P.total*c.fps);
     if(data.server && data.server.ffmpeg){
@@ -2987,7 +3045,7 @@ async function mvRender(){
       self.movieId = j.id;
       for(let i = 0; i < n; i++){
         if(self.cancel) throw new Error("cancelled");
-        mvFrame(i/c.fps);
+        await mvDraw(i/c.fps);
         const blob = await new Promise(res => self.canvas.toBlob(res, "image/jpeg", 0.93));
         const fr = await fetch(`api/movie/frame?id=${j.id}`, {method: "POST", headers: {"Content-Type": "image/jpeg"}, body: blob});
         if(!fr.ok) throw new Error(((await fr.json().catch(() => ({}))).error) || `HTTP ${fr.status}`);
@@ -3008,7 +3066,7 @@ async function mvRender(){
         for(let i = 0; i < n; i++){
           if(self.cancel){ try { enc.close(); } catch(e){} throw new Error("cancelled"); }
           if(failed) throw failed;
-          mvFrame(i/c.fps);
+          await mvDraw(i/c.fps);
           const vf = new VideoFrame(self.canvas, {timestamp: Math.round(i*1e6/c.fps), duration: Math.round(1e6/c.fps)});
           enc.encode(vf, {keyFrame: i % Math.round(c.fps) === 0}); vf.close();
           while(enc.encodeQueueSize > 4) await new Promise(res => setTimeout(res, 5));
@@ -3029,7 +3087,7 @@ async function mvRender(){
         rec.start(); const t0 = performance.now();
         for(let i = 0; i < n; i++){
           if(self.cancel){ rec.stop(); throw new Error("cancelled"); }
-          mvFrame(i/c.fps); track.requestFrame();
+          await mvDraw(i/c.fps); track.requestFrame();
           if(i % 5 === 0) prog(`Recording frame ${i + 1} of ${n} (real time)…`, 0.15 + 0.84*i/n);
           await new Promise(res => setTimeout(res, Math.max(0, t0 + (i + 1)*1000/c.fps - performance.now())));
         }
@@ -3058,6 +3116,189 @@ $("#mvOut").addEventListener("click", async e => {
       const j = await res.json().catch(() => ({})); if(res.status === 409) return {exists: true}; if(!res.ok) throw new Error(j.error || `HTTP ${res.status}`); return j; }});
   mvSay(r && r.path ? `Movie saved to ${r.path} on the server.` : "The movie was not saved on the server.");
 });
+
+/* ---------- PACEtomo movie: atlas -> square map -> View -> picking each target -> all tilt series in step ---------- */
+// The tilt series opened for the targets replace the targets: their (aligned) positions and images are used.
+async function mvOpenPace(g){
+  if(!g || !g.view || !g.view.doc) return setMsg("The View image of this PACEtomo area is not loaded, so the movie cannot be made.");
+  if(mv && mv.busy) return;
+  const dlg = $("#mvDlg");
+  mv = {kind: "pace", grp: g, cfg: mvCfg(), t: 0, ready: false, timg: new Map(), loading: new Set(), canvas: $("#mvCanvas"), lastImg: []};
+  mv.g = mv.canvas.getContext("2d");
+  mvPaceTargets();
+  mv.seq = mvSeq();
+  $("#mvTitle").textContent = "PACEtomo movie";
+  mvForm(); mvEncoderNote(); if(!dlg.open) dlg.showModal();
+  mvSay("Loading the atlas, the square map and the View…");
+  try {
+    await mvPrepare(); await mvPacePrepare(); mv.ready = true; mvPlan();
+    const nts = mv.tg.filter(x => x.tilts).length;
+    mvSay(nts ? "" : "None of the targets has a tilt series open yet, so the movie ends after the targets are picked. Open the tilt series and reopen this dialog.", !nts);
+    mvShow(mv.plan.tP + 0.4);
+  } catch(e){ mvSay(`Cannot make the movie: ${e.message}`, true); }
+}
+function mvPaceTargets(){
+  const g = mv.grp, c = mv.cfg;
+  const items = state.layers.filter(L => L.visible && L.type === "tilt").flatMap(L => L.items).filter(it => it.pace && it.pace.g === g);
+  mv.tg = g.targets.filter(t => t.stage && !t.skip).map((t, i) => {
+    const ts = items.find(it => it.pace.t === t) || null, pv = g.previews[t.no], p = paceTargetPos(g, t);
+    const box = ts ? {cx: ts.cx, cy: ts.cy, w: ts.w, h: ts.h, rot: ts.rot, flip: ts.flip || 1}
+                   : {cx: p[0], cy: p[1], w: pv ? pv.w : 0.8, h: pv ? pv.h : 0.8, rot: paceRot(g), flip: g.flip || 1};
+    const tilts = ts ? mvTilts(ts.doc) : null;
+    return {i, t, no: Number(t.no) || t.no, ts, box, tilts: tilts && tilts.secs.length ? tilts : null};
+  });
+  // one list of angles for all targets (angles within 0.75° are the same step)
+  const withTs = mv.tg.filter(x => x.tilts), all = [...new Set(withTs.flatMap(x => x.tilts.secs.map(s => Math.round(s.a*10)/10)))].sort((a, b) => a - b), merged = [];
+  for(const a of all) if(!merged.length || a - merged[merged.length - 1] > 0.75) merged.push(a);
+  mv.tilts = {secs: merged.map(a => ({a, z: null})), start: withTs.length ? withTs[0].tilts.start : 0};
+  if(merged.length) Object.assign(c, {start: Math.round(mv.tilts.start), low: Math.floor(merged[0]), high: Math.ceil(merged[merged.length - 1])});
+}
+async function mvPacePrepare(){
+  const g = mv.grp, v = g.view, b = paceViewBox(g);
+  mvSay("Reading the View image…");
+  const res = Math.max(v.px, Math.max(v.w, v.h)/3072);
+  mv.viewImg = {img: (await imageAt(v.doc, v.sec, res)).canvas, cx: b.cx, cy: b.cy, w: b.w, h: b.h, rot: b.rot, flip: b.flip || 1};
+}
+// for each step of the playback, the section of each target's tilt series at that angle (or the last one shown)
+function mvPaceSteps(){
+  mv.stepZ = mv.seq.map(st => mv.tg.map(x => {
+    if(!x.tilts) return null;
+    let best = null; for(const s of x.tilts.secs) if(Math.abs(s.a - st.a) <= 1.0 && (!best || Math.abs(s.a - st.a) < Math.abs(best.a - st.a))) best = s;
+    return best ? best.z : null;
+  }));
+  for(let i = 0; i < mv.tg.length; i++){
+    let last = null;
+    for(const row of mv.stepZ){ if(row[i] == null) row[i] = last; else last = row[i]; }
+    const first = mv.stepZ.find(r => r[i] != null); if(first) for(const row of mv.stepZ){ if(row[i] == null) row[i] = first[i]; else break; }
+  }
+}
+function mvPlanPace(B){
+  const {MW, MH, k, f0, fEnd, full, zSq, TB, TS, hasAtlas, sq, cam0} = B, c = mv.cfg, vb = mv.viewImg;
+  // the View and every target circle fit in the frame (below the title); View zoom scales that
+  const cf = {...cam0, f: fEnd}, Pv = mvCorners(vb).map(p => mvPt(cf, p[0], p[1]));
+  for(const x of mv.tg){ const [sx, sy] = mvPt(cf, x.box.cx, x.box.cy), r = Math.hypot(x.box.w, x.box.h)/2*1.25; Pv.push([sx - r, sy - r], [sx + r, sy + r]); }
+  const X0 = Math.min(...Pv.map(p => p[0])), X1 = Math.max(...Pv.map(p => p[0])), Y0 = Math.min(...Pv.map(p => p[1])), Y1 = Math.max(...Pv.map(p => p[1]));
+  const vw = X1 - X0, vh = Y1 - Y0, X = (X0 + X1)/2, Y = (Y0 + Y1)/2, cc = Math.cos(fEnd), sn = Math.sin(fEnd);
+  const zV = Math.max(0.05, c.viewZoom || 1)*Math.min(0.9*MW/vw, 0.76*MH/vh);
+  const camV = {x: X*cc - Y*sn, y: (X*sn + Y*cc)/ys(), s: zV, f: fEnd, W: MW, H: MH};
+  // grid of tilt-series insets, all turned to the same right angle so they match the map
+  const ts = mv.tg.filter(x => x.tilts), n = ts.length;
+  let grid = null;
+  if(n){
+    const a0 = ys()*ts[0].box.rot*Math.PI/180 - fEnd, a1 = Math.round(a0/(Math.PI/2))*(Math.PI/2), odd = Math.abs(Math.round(a1/(Math.PI/2))) % 2 === 1;
+    const bw = Math.max(...ts.map(x => odd ? x.box.h : x.box.w)), bh = Math.max(...ts.map(x => odd ? x.box.w : x.box.h));
+    const L0 = 40*k, R0 = MW - (c.schematic ? 360*k : 40*k), T0 = 190*k, B0 = MH - 130*k, AW = R0 - L0, AH = B0 - T0;
+    let best = null;
+    for(let cols = 1; cols <= n; cols++){
+      const rows = Math.ceil(n/cols), s = Math.min(0.92*AW/cols/bw, 0.9*AH/rows/bh);
+      if(!best || s > best.s) best = {cols, rows, s};
+    }
+    const cw = AW/best.cols, ch = AH/best.rows, cells = new Map();
+    ts.forEach((x, j) => {
+      const r = Math.floor(j/best.cols), inRow = Math.min(best.cols, n - r*best.cols), col = j - r*best.cols;
+      cells.set(x.i, [L0 + (AW - inRow*cw)/2 + (col + 0.5)*cw, T0 + (AH - best.rows*ch)/2 + (r + 0.5)*ch]);
+    });
+    grid = {a1, s: best.s, cells, right: R0, bottom: B0, px: Math.max(256, Math.min(1536, Math.ceil(Math.max(...ts.map(x => Math.max(x.box.w, x.box.h))) * best.s * 1.15)))};
+    mv.cacheMax = Math.max(64, n*8);
+  }
+  mv.seq = mvSeq(); mvPaceSteps();
+  const TV = Math.max(0.5, c.tToView), TP = Math.max(0.2, c.tPick);
+  const tB = hasAtlas ? Math.max(0.5, c.tAtlas) : 0, tC = hasAtlas ? tB + TB : 0, tD = tC + TS, tE = tD + TV, tF = tE + 1.2, tP = tF + mv.tg.length*TP, tG = tP + 1.0, tH = n ? tG + 1.8 : tG;
+  const total = tH + (n ? mv.seq.length/Math.max(1, c.tiltFps) + 1.5 : 0.5);
+  mv.plan = {kind: "pace", MW, MH, k, f0, fEnd, full, sqC: [sq.cx, sq.cy], zSq, TB, TS, TV, TP, camV, zV, hasAtlas, tB, tC, tD, tE, tF, tP, tG, tH, total, grid};
+  mv.bgEnd = null;
+  const sl = $("#mvTime"); if(sl){ sl.max = total.toFixed(3); sl.step = (1/c.fps).toFixed(4); }
+  const info = $("#mvInfo"); if(info) info.textContent = `${total.toFixed(1)} s · ${Math.round(total*c.fps)} frames · ${mv.tg.length} target${mv.tg.length === 1 ? "" : "s"}, ${n} with a tilt series · ${mv.seq.length} tilt steps${mv.seq.length ? ` (${mvSchemeText()})` : ""}`;
+}
+function mvView(g, cam, alpha){ if(alpha <= 0) return; g.globalAlpha = alpha; mvTile(g, cam, mv.viewImg.img, mv.viewImg); g.globalAlpha = 1; }
+// a picked target: yellow box at the tilt-series footprint, a circle drawn around it, its number
+function mvMark(g, cam, x, prog, k, alpha){
+  if(prog <= 0 || alpha <= 0) return;
+  const col = mv.grp.color || PACE_COLOR, b = x.box, P = mvCorners(b).map(p => mvPt(cam, p[0], p[1]));
+  const cx = P.reduce((a, p) => a + p[0], 0)/4, cy = P.reduce((a, p) => a + p[1], 0)/4, r = Math.max(16*k, Math.hypot(b.w, b.h)/2*cam.s + 9*k);
+  g.save(); g.globalAlpha = alpha*mvEase(prog/0.35); g.strokeStyle = "rgb(255,200,40)"; g.lineWidth = 3*k; g.lineJoin = "round";
+  g.beginPath(); P.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath(); g.stroke();
+  const sweep = mvEase((prog - 0.2)/0.5);
+  if(sweep > 0){ g.globalAlpha = alpha; g.strokeStyle = col; g.lineWidth = 3.5*k; g.beginPath(); g.arc(cx, cy, r, -Math.PI/2, -Math.PI/2 + sweep*Math.PI*2); g.stroke(); }
+  const na = mvEase((prog - 0.45)/0.35);
+  if(na > 0){
+    g.globalAlpha = alpha*na; g.font = `700 ${26*k}px ${getFont("--font-body") || "sans-serif"}`; g.textAlign = "center"; g.textBaseline = "middle";
+    const lab = String(x.no), tw = g.measureText(lab).width, lx = cx + r*0.74 + 14*k, ly = cy - r*0.74 - 14*k;
+    mvRound(g, lx - tw/2 - 9*k, ly - 17*k, tw + 18*k, 34*k, 9*k, "rgba(0,0,0,0.7)"); g.fillStyle = col; g.fillText(lab, lx, ly + 1*k);
+  }
+  g.restore();
+}
+function mvInsetDraw(g, img, x, p, s, ang, k, alpha, label){
+  const w = x.box.w*s, h = x.box.h*s;
+  g.save(); g.globalAlpha = alpha; g.translate(p[0], p[1]); g.rotate(ang); g.scale(1, -ys()*(x.box.flip || 1));
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+  if(img) g.drawImage(img, -w/2, -h/2, w, h); else { g.fillStyle = "rgba(255,255,255,0.08)"; g.fillRect(-w/2, -h/2, w, h); }
+  g.strokeStyle = "rgba(255,255,255,0.86)"; g.lineWidth = 2.5*k; g.strokeRect(-w/2, -h/2, w, h);
+  g.restore();
+  if(label){
+    const ca = Math.abs(Math.cos(ang)), sa = Math.abs(Math.sin(ang)), ew = w*ca + h*sa, eh = w*sa + h*ca, col = mv.grp.color || PACE_COLOR;
+    g.save(); g.globalAlpha = alpha; g.font = `700 ${24*k}px ${getFont("--font-body") || "sans-serif"}`; g.textAlign = "left"; g.textBaseline = "middle";
+    const tw = g.measureText(label).width, lx = p[0] - ew/2 + 8*k, ly = p[1] - eh/2 + 22*k;
+    mvRound(g, lx, ly - 16*k, tw + 16*k, 32*k, 8*k, "rgba(0,0,0,0.7)"); g.fillStyle = col; g.fillText(label, lx + 8*k, ly + 1*k);
+    g.restore();
+  }
+}
+function mvFramePace(t){
+  const P = mv.plan, c = mv.cfg, g = mv.g, k = P.k, L = c.pLabels, n = mv.tg.length, ts = mv.tg.filter(x => x.tilts);
+  const cam = (x, y, s, f) => ({x, y, s, f, W: P.MW, H: P.MH});
+  const bar = cm => mvBar(g, k, 1000/cm.s, P.MW - 60*k, P.MH - 60*k);
+  if(mvSquareStages(g, t, P, L)) return null;
+  let need = null;
+  const imgOf = (x, z) => {
+    if(z == null) return mv.lastImg[x.i] || null;
+    const im = mv.timg.get(mvKey(x.ts.doc, z, P.grid.px));
+    if(im){ mv.lastImg[x.i] = im; return im; }
+    if(!need) need = [z, x.ts.doc, P.grid.px];
+    return mv.lastImg[x.i] || null;
+  };
+  const pickSub = kk => L[2][1] || `Target ${kk} of ${n}`;
+  if(t < P.tE){
+    const u = (t - P.tD)/P.TV, z = mvZoomCam(u, P.sqC, P.zSq, [P.camV.x, P.camV.y], P.zV), cm = cam(z.x, z.y, z.s, P.fEnd), va = mvEase((z.s/P.zV - 0.25)/0.55);
+    mvScene(g, cm, 1); mvView(g, cm, va); mvBox(g, cm, mv.viewImg, mvEase(u*4)*(1 - va), k);
+    if(u < 0.65) mvTitle(g, k, L[1][0], L[1][1], 1 - mvEase((u - 0.35)/0.3)); else mvTitle(g, k, L[2][0], L[2][1] || `${n} target${n === 1 ? "" : "s"}`, mvEase((u - 0.7)/0.3));
+    bar(cm); return null;
+  }
+  if(t < P.tG){
+    const cm = P.camV; mvScene(g, cm, 1); mvView(g, cm, 1);
+    let kk = 0;
+    mv.tg.forEach((x, i) => { const pr = (t - P.tF - i*P.TP)/P.TP; if(pr > 0) kk = i + 1; mvMark(g, cm, x, Math.min(1.5, pr), k, 1); });
+    mvTitle(g, k, L[2][0], kk ? pickSub(kk) : (L[2][1] || `${n} target${n === 1 ? "" : "s"}`), 1);
+    bar(cm); return null;
+  }
+  // from here on: the View with all targets marked, dimmed, and the tilt series in a grid
+  if(!mv.bgEnd){
+    mv.bgEnd = document.createElement("canvas"); mv.bgEnd.width = P.MW; mv.bgEnd.height = P.MH;
+    const bg = mv.bgEnd.getContext("2d"); mvScene(bg, P.camV, 1); mvView(bg, P.camV, 1); mv.tg.forEach(x => mvMark(bg, P.camV, x, 1.5, k, 1));
+  }
+  const G = P.grid, sub3 = L[3][1] || `${ts.length} target${ts.length === 1 ? "" : "s"} in parallel${mv.seq.length ? ` · ${mvSchemeText()}` : ""}`;
+  g.globalAlpha = 1; g.fillStyle = "#000"; g.fillRect(0, 0, P.MW, P.MH);
+  if(t < P.tH){
+    const u = (t - P.tG)/1.8, e = mvEase(u);
+    g.globalAlpha = 1 - 0.65*e; g.drawImage(mv.bgEnd, 0, 0); g.globalAlpha = 1;
+    if(G) for(const x of ts){
+      const z = mv.stepZ.length ? mv.stepZ[0][x.i] : null, p0 = mvPt(P.camV, x.box.cx, x.box.cy), p1 = G.cells.get(x.i);
+      const a0 = ys()*x.box.rot*Math.PI/180 - P.fEnd, s = P.zV*Math.pow(G.s/P.zV, e);
+      mvInsetDraw(g, imgOf(x, z), x, [p0[0] + (p1[0] - p0[0])*e, p0[1] + (p1[1] - p0[1])*e], s, a0 + (G.a1 - a0)*e, k, 1, e > 0.6 ? String(x.no) : "");
+    }
+    if(u < 0.35) mvTitle(g, k, L[2][0], pickSub(n), 1 - mvEase(u/0.35)); else mvTitle(g, k, L[3][0], sub3, mvEase((u - 0.35)/0.35));
+    return need;
+  }
+  g.globalAlpha = 0.35; g.drawImage(mv.bgEnd, 0, 0); g.globalAlpha = 1;
+  const ns = mv.seq.length, x0 = (t - P.tH)*Math.max(1, c.tiltFps), j = Math.max(0, Math.min(Math.floor(x0), ns - 1)), jn = Math.min(j + 1, ns - 1), fr = j < ns - 1 ? x0 - j : 0;
+  const cur = mv.seq[j], nxt = mv.seq[jn];
+  for(const x of ts) mvInsetDraw(g, imgOf(x, mv.stepZ[j][x.i]), x, G.cells.get(x.i), G.s, G.a1, k, 1, String(x.no));
+  const xs = (G.right - 40*k)/2 - 200*k;
+  mvAngleBar(g, k, Math.max(40*k, xs), G.bottom + 20*k, cur.a);
+  if(c.schematic) mvSchematic(g, k, P.MW - 190*k, P.MH/2, cur.a + (nxt.a - cur.a)*fr, 1);
+  mvBar(g, k, 1000/G.s, P.MW - 60*k, P.MH - 60*k);
+  mvTitle(g, k, L[3][0], sub3, 1);
+  return need;
+}
 
 /* ---------- session: save and restore everything that was opened and placed ---------- */
 const SESSION_KEY = "mdocStageMap.session";

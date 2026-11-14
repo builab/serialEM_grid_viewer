@@ -35,7 +35,7 @@ SerialEMData/
 ├── MMM1.mrc
 ├── ts/                           # Better to soft link all the .mrc files
 │   ├── T_1_ts_001.mrc.mdoc
-│   ├── T_1_ts_001.mrc            # Can be binned stack (.st is also ok)
+│   ├── T_1_ts_001.mrc            # Much better for viewing & movie when this is a binned stack (.st is also ok)
 │   ├── T_1_ts_002.mrc.mdoc
 │   ├── T_1_ts_002.mrc
 │   ├── T_1_ts_003.mrc.mdoc

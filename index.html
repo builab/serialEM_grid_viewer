@@ -2131,7 +2131,7 @@ $("#ctxMenu").addEventListener("keydown", e => {
 
 /* ---------- Method 2: PACEtomo _tgts.txt: anchor the View image, then place every target ---------- */
 const TGTS_RE = /_tgts(_p\d+)?\.txt$/i;
-const PACE_KEY = "mdocStageMap.pace", PACE_COLOR = "#c2185b";
+const PACE_KEY = "mdocStageMap.pace", PACE_COLOR = "#b6ff00";
 let PACESTORE = {};
 try { PACESTORE = JSON.parse(localStorage.getItem(PACE_KEY) || "{}") || {}; } catch(e){ PACESTORE = {}; }
 const PACE = [];

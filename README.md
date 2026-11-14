@@ -25,17 +25,53 @@ It is one HTML page (`index.html`) plus a small Python server (`mdoc_server.py`)
 
 ## Quick start
 
-On the computer that has the data:
+On the computer that has the data. Recommended Data Organization
+
+```text
+SerialEMData/
+├── atlas.mrc.mdoc                # Single grid atlas metadata
+├── atlas.mrc                     # Single grid atlas
+├── MMM1.mrc.mdoc
+├── MMM1.mrc
+├── ts/                           # Better to soft link all the .mrc files
+│   ├── T_1_ts_001.mrc.mdoc
+│   ├── T_1_ts_001.mrc            # Can be binned stack (.st is also ok)
+│   ├── T_1_ts_002.mrc.mdoc
+│   ├── T_1_ts_002.mrc
+│   ├── T_1_ts_003.mrc.mdoc
+│   └── T_1_ts_003.mrc
+└── targets/
+    ├── T_1_tgt_001_view.mrc.mdoc
+    ├── T_1_tgt_001_view.mrc
+    ├── T_1_tgt_001.mrc.mdoc
+    ├── T_1_tgt_001.mrc
+    ├── T_1_tgt_002.mrc.mdoc
+    ├── T_1_tgt_002.mrc
+    ├── T_1_tgt_003.mrc.mdoc
+    ├── T_1_tgt_003.mrc
+    └── T_1_tgts.txt
+```
+
+Start the service
 
 ```bash
 git clone https://github.com/builab/serialEM_grid_viewer.git
 cd serialEM_grid_viewer
-python3 mdoc_server.py /path/to/your/sessions
+python3 mdoc_server.py /path/to/your/serialEM/data --port 8765
 ```
 
 Then open **http://localhost:8765** in Chrome, Edge or Firefox and press **Open…**.
 
 You can also open `index.html` directly from disk, without the server. You then pick files from your own computer, and you need to select each `.mdoc` together with its `.mrc` (or choose the data folder once) for the images to show.
+
+If the data is on a remote server, do port forwarding like Cryosparc on your local computer
+
+```bash
+ssh -N -f -L localhost:8765:localhost:8765 user@remote_server
+```
+
+Then open **http://localhost:8765** in Chrome, Edge or Firefox on your local machine.
+
 
 ## Opening data
 

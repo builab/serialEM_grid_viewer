@@ -306,8 +306,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.api_list(arg("path"), arg("recursive") == "1", ext_filter(arg("ext")))
             if url.path == "/api/stat":
                 real, api = resolve(arg("path"))
+                if real and os.path.islink(real) and not os.path.isfile(real):
+                    # say why a symbolic link cannot be used, instead of a plain "not found"
+                    target = os.readlink(real)
+                    full = os.path.normpath(os.path.join(os.path.dirname(real), target))
+                    why = "does not exist on this computer" if not os.path.exists(full) else "is not a file"
+                    return self.send_json({"error": f"{os.path.basename(real)} is a symbolic link to {target}, which {why}.", "link": target}, 404)
                 if not real or not os.path.isfile(real):
                     return self.send_err(404, "Not found.")
+                if not os.access(real, os.R_OK):
+                    return self.send_err(403, f"{os.path.basename(real)} cannot be read by the server (permissions)" + (f"; it is a symbolic link to {os.readlink(real)}." if os.path.islink(real) else "."))
                 return self.send_json({"path": api, "size": os.path.getsize(real)})
             if url.path == "/api/section":
                 if np is None:

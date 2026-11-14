@@ -4,8 +4,9 @@ mdoc_server.py - serve mdoc Stage Map and your SerialEM data folders to a browse
 
 The viewer page (index.html) must sit next to this script, or be given with --html.
 Only the folders you list are reachable. Everything is read-only except session
-files: the viewer can save its state as a .json file inside those folders (turn
-that off with --read-only).
+files and movies: the viewer can save its state as a .json file, and an acquisition
+movie as an .mp4 file, inside those folders (turn that off with --read-only).
+Movies are encoded by ffmpeg on this machine, if it is installed.
 
 Usage
     python3 mdoc_server.py /path/to/data [/another/root ...] [--port 8765] [--host 127.0.0.1]
@@ -28,11 +29,18 @@ before sending it (about 80x less data over the network); without numpy the view
 reads full pieces and shrinks them itself.
 """
 import argparse
+import atexit
 import json
 import os
 import re
+import secrets
+import shutil
 import struct
+import subprocess
 import sys
+import tempfile
+import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -42,7 +50,7 @@ except ImportError:
     np = None
 
 APP = "mdoc-stage-map"
-VERSION = "1.2"
+VERSION = "1.3"
 MRC_EXT = (".mrc", ".st", ".map", ".mrcs", ".ali", ".preali")
 CHUNK = 1 << 20          # 1 MiB per write when streaming a file
 LIST_LIMIT = 20000       # most mdoc files returned by one recursive listing
@@ -50,6 +58,11 @@ TGTS_RE = re.compile(r"_tgts(_p\d+)?\.txt$", re.I)   # PACEtomo target files
 
 SAVE_EXT = (".json",)    # the only files the server will write
 SAVE_LIMIT = 64 << 20    # largest session file accepted, in bytes
+
+MOVIES = {}              # id -> {"proc", "dir", "out", "log", "n", "t"}: movies being encoded by ffmpeg
+MOVIE_LOCK = threading.Lock()
+MOVIE_MAX_FRAMES = 30000 # about 16 minutes at 30 frames per second
+MOVIE_MAX_FRAME = 16 << 20
 
 ROOTS = {}               # name -> absolute real path
 HTML_PATH = None
@@ -120,6 +133,61 @@ def read_binned_section(real, z, binf):
     bw, bh = nx // binf, ny // binf
     a = a[:bh * binf, :bw * binf].astype(np.float32).reshape(bh, binf, bw, binf).mean(axis=(1, 3))
     return a.astype("<f4").tobytes(), bw, bh
+
+
+FFMPEG = "auto"          # --ffmpeg: a path, "auto" (look on PATH) or "none"
+
+
+def ffmpeg_path():
+    if FFMPEG == "none":
+        return None
+    if FFMPEG != "auto":
+        return FFMPEG if os.path.isfile(FFMPEG) else shutil.which(FFMPEG)
+    exe = shutil.which("ffmpeg")
+    if not exe:
+        try:                                   # the copy that comes with the imageio-ffmpeg Python package
+            import imageio_ffmpeg
+            exe = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            exe = None
+    return exe
+
+
+def ffmpeg_encoder(exe):
+    """An H.264 encoder this ffmpeg really has (some builds lack libx264), else MPEG-4."""
+    try:
+        out = subprocess.run([exe, "-hide_banner", "-encoders"], capture_output=True, text=True, timeout=20).stdout
+    except Exception:
+        out = ""
+    table = [("libx264", ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18"]),
+             ("h264_videotoolbox", ["-c:v", "h264_videotoolbox", "-b:v", "20M", "-allow_sw", "1"]),
+             ("libopenh264", ["-c:v", "libopenh264", "-b:v", "20M"]),
+             ("h264_nvenc", ["-c:v", "h264_nvenc", "-cq", "19", "-b:v", "0"])]
+    for name, args in table:
+        if f" {name} " in out:
+            return name, args
+    return "mpeg4", ["-c:v", "mpeg4", "-q:v", "2"]
+
+
+def movie_drop(mid):
+    """Stop the encoder of a movie and delete its temporary folder."""
+    with MOVIE_LOCK:
+        m = MOVIES.pop(mid, None)
+    if not m:
+        return
+    try:
+        if m["proc"].poll() is None:
+            m["proc"].kill()
+    except Exception:
+        pass
+    shutil.rmtree(m["dir"], ignore_errors=True)
+
+
+def movie_sweep():
+    """Forget movies nobody touched for an hour."""
+    now = time.time()
+    for mid in [k for k, m in list(MOVIES.items()) if now - m["t"] > 3600]:
+        movie_drop(mid)
 
 
 def listed(name):
@@ -226,7 +294,7 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/info":
                 start = next(iter(ROOTS)) if len(ROOTS) == 1 else ""
                 return self.send_json({"app": APP, "version": VERSION, "start": start, "numpy": np is not None,
-                                       "write": WRITABLE, "sep": os.sep,
+                                       "write": WRITABLE, "sep": os.sep, "ffmpeg": ffmpeg_path() is not None,
                                        "roots": [{"name": n, "path": r} for n, r in ROOTS.items()]})
             if url.path == "/api/list":
                 return self.api_list(arg("path"), arg("recursive") == "1", ext_filter(arg("ext")))
@@ -258,6 +326,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_err(404, "Not found.")
                 ctype = "text/plain; charset=utf-8" if real.lower().endswith(".mdoc") else "application/octet-stream"
                 return self.send_path(real, ctype)
+            if url.path == "/api/movie/file":
+                m = MOVIES.get(arg("id"))
+                if not m or not m.get("done") or not os.path.isfile(m["out"]):
+                    return self.send_err(404, "That movie is not available (any more).")
+                m["t"] = time.time()
+                return self.send_path(m["out"], "video/mp4")
             return self.send_err(404, "Unknown address.")
         except PermissionError as e:
             return self.send_err(403, str(e))
@@ -277,6 +351,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if url.path == "/api/save":
                 return self.api_save(q.get("path", [""])[0], q.get("overwrite", ["0"])[0] == "1")
+            if url.path.startswith("/api/movie/"):
+                return self.api_movie(url.path[len("/api/movie/"):], q)
             return self.send_err(404, "Unknown address.")
         except PermissionError as e:
             return self.send_err(403, str(e))
@@ -289,6 +365,117 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_err(500, f"{type(e).__name__}: {e}")
             except Exception:
                 return
+
+    # ---------- movies: the page sends JPEG frames, ffmpeg on this machine encodes them ----------
+    def body(self, limit):
+        n = int(self.headers.get("Content-Length") or 0)
+        if n <= 0 or n > limit:
+            return None
+        return self.rfile.read(n)
+
+    def api_movie(self, action, q):
+        arg = lambda k, d="": q.get(k, [d])[0]
+        ctype = (self.headers.get("Content-Type") or "").lower()
+        if action == "start":
+            # JSON content type: a page from another site cannot start an encoder here (CORS preflight is never answered)
+            if not ctype.startswith("application/json"):
+                return self.send_err(415, "Send application/json.")
+            exe = ffmpeg_path()
+            if not exe:
+                return self.send_err(501, "ffmpeg is not installed on the server.")
+            try:
+                o = json.loads((self.body(1 << 16) or b"{}").decode("utf-8"))
+                w, h, fps = int(o.get("w", 1920)), int(o.get("h", 1080)), float(o.get("fps", 30))
+            except Exception:
+                return self.send_err(400, "Bad movie settings.")
+            if not (64 <= w <= 4096 and 64 <= h <= 4096 and w % 2 == 0 and h % 2 == 0 and 1 <= fps <= 60):
+                return self.send_err(400, "Movie size must be even, 64 to 4096 px, at 1 to 60 frames per second.")
+            movie_sweep()
+            if sum(1 for m in MOVIES.values() if not m.get("done")) >= 2:
+                return self.send_err(429, "Two movies are already being encoded on this server.")
+            d = tempfile.mkdtemp(prefix="mdoc_movie_")
+            out, log = os.path.join(d, "movie.mp4"), open(os.path.join(d, "ffmpeg.log"), "wb")
+            enc, args = ffmpeg_encoder(exe)
+            proc = subprocess.Popen([exe, "-y", "-loglevel", "error", "-f", "image2pipe", "-c:v", "mjpeg", "-framerate", f"{fps:g}", "-i", "-"]
+                                    + args + ["-r", f"{fps:g}", "-pix_fmt", "yuv420p", "-movflags", "+faststart", out],
+                                    stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=log)
+            mid = secrets.token_urlsafe(18)
+            MOVIES[mid] = {"proc": proc, "dir": d, "out": out, "log": log, "n": 0, "t": time.time(), "lock": threading.Lock()}
+            return self.send_json({"id": mid, "encoder": enc})
+        m = MOVIES.get(arg("id"))
+        if not m:
+            return self.send_err(404, "Unknown movie.")
+        m["t"] = time.time()
+
+        def why():
+            try:
+                m["log"].flush()
+                return open(os.path.join(m["dir"], "ffmpeg.log"), "rb").read()[-400:].decode("utf-8", "replace").strip()
+            except Exception:
+                return ""
+        if action == "frame":
+            if not ctype.startswith("image/jpeg"):
+                return self.send_err(415, "Send each frame as image/jpeg.")
+            data = self.body(MOVIE_MAX_FRAME)
+            if not data or data[:2] != b"\xff\xd8":
+                return self.send_err(400, "Not a JPEG frame.")
+            if m.get("done") or m["n"] >= MOVIE_MAX_FRAMES:
+                return self.send_err(400, "This movie takes no more frames.")
+            try:
+                with m["lock"]:
+                    m["proc"].stdin.write(data)
+                    m["n"] += 1
+            except (BrokenPipeError, OSError):
+                return self.send_err(500, "ffmpeg stopped: " + (why() or "no message"))
+            return self.send_json({"n": m["n"]})
+        if action == "end":
+            try:
+                m["proc"].stdin.close()
+            except Exception:
+                pass
+            try:
+                code = m["proc"].wait(timeout=900)
+            except subprocess.TimeoutExpired:
+                movie_drop(arg("id"))
+                return self.send_err(500, "ffmpeg did not finish.")
+            if code != 0 or not os.path.isfile(m["out"]):
+                msg = why()
+                movie_drop(arg("id"))
+                return self.send_err(500, "ffmpeg failed: " + (msg or f"exit code {code}"))
+            m["done"] = True
+            return self.send_json({"frames": m["n"], "size": os.path.getsize(m["out"])})
+        if action == "cancel":
+            movie_drop(arg("id"))
+            return self.send_json({"ok": True})
+        if action == "save":
+            # copy the finished movie into a shared folder: .mp4 only, same rules as session files
+            if not WRITABLE:
+                raise PermissionError("This server was started with --read-only, so it cannot save files.")
+            if not ctype.startswith("application/json"):
+                return self.send_err(415, "Send application/json.")
+            if not m.get("done"):
+                return self.send_err(400, "The movie is not finished.")
+            real, api = resolve(arg("path"))
+            if not real or "/" not in api:
+                raise PermissionError("Choose a folder inside one of the shared folders.")
+            if not real.lower().endswith(".mp4"):
+                raise PermissionError("Movies are saved as .mp4 files.")
+            folder = os.path.dirname(real)
+            if not os.path.isdir(folder):
+                raise FileNotFoundError("That folder does not exist.")
+            if os.path.islink(real) or os.path.isdir(real):
+                raise PermissionError("Will not write there.")
+            if os.path.exists(real) and arg("overwrite") != "1":
+                return self.send_json({"error": "exists", "path": api}, 409)
+            tmp = os.path.join(folder, f".{os.path.basename(real)}.{os.getpid()}.tmp")
+            try:
+                shutil.copyfile(m["out"], tmp)
+                os.replace(tmp, real)
+            finally:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            return self.send_json({"path": api, "size": os.path.getsize(real)})
+        return self.send_err(404, "Unknown address.")
 
     def api_save(self, path, overwrite):
         """Write a session .json inside a shared folder: never another file type, never outside the roots."""
@@ -376,7 +563,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global HTML_PATH, VERBOSE, WRITABLE
+    global HTML_PATH, VERBOSE, WRITABLE, FFMPEG
     ap = argparse.ArgumentParser(description="Serve mdoc Stage Map and SerialEM data folders (read-only except session .json files).")
     ap.add_argument("roots", nargs="+", help="data folders to share")
     ap.add_argument("--port", type=int, default=8765)
@@ -384,6 +571,7 @@ def main():
     ap.add_argument("--html", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"),
                     help="path to the viewer page (default: index.html next to this script)")
     ap.add_argument("--read-only", action="store_true", help="never write anything, not even session .json files")
+    ap.add_argument("--ffmpeg", default="auto", help="ffmpeg used to encode acquisition movies: a path, 'auto' (default: look on PATH) or 'none'")
     ap.add_argument("-v", "--verbose", action="store_true", help="log every request")
     a = ap.parse_args()
 
@@ -400,15 +588,18 @@ def main():
     HTML_PATH = os.path.realpath(a.html)
     VERBOSE = a.verbose
     WRITABLE = not a.read_only
+    FFMPEG = a.ffmpeg
     if not os.path.isfile(HTML_PATH):
         print(f"Warning: viewer page not found at {HTML_PATH}", file=sys.stderr)
 
+    atexit.register(lambda: [movie_drop(k) for k in list(MOVIES)])     # no temporary movie folders left behind
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     srv.daemon_threads = True
     shown = "localhost" if a.host in ("127.0.0.1", "0.0.0.0", "") else a.host
     print(f"mdoc Stage Map server {VERSION}  (numpy {'found: pieces are shrunk on the server' if np is not None else 'not found: full pieces are sent'})")
     for n, r in ROOTS.items():
         print(f"  sharing  {n:<16} {r}")
+    print("  movies   " + (f"encoded with {ffmpeg_path()}" if ffmpeg_path() else "ffmpeg not found (pass --ffmpeg PATH): the browser encodes them instead"))
     print(f"\n  Open  http://{shown}:{a.port}\n")
     if a.host not in ("127.0.0.1", "localhost"):
         print("  Note: other computers on the network can read the shared folders"

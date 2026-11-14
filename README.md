@@ -174,7 +174,7 @@ Then open http://localhost:8765 on your own computer. Open and Save browse the w
 - **Server:** Python 3.7 or newer.
   - Optional: `numpy`. The server then shrinks each image piece before sending it, which is much faster over a network.
   - Optional: `ffmpeg` on the server machine, for `.mp4` movies. `--ffmpeg` points at a specific binary; the copy from the `imageio-ffmpeg` Python package is also found.
-- **Data:** SerialEM `.mdoc` files with their `.mrc` images. Little-endian MRC, modes 0, 1, 2, 6 and 12.
+- **Data:** SerialEM `.mdoc` files with their `.mrc` images. A tilt series may also be kept as `.st` (for example `TS_001.mrc.mdoc` with `TS_001.st`); either name is found. Little-endian MRC, modes 0, 1, 2, 6 and 12.
 
 ## License
 

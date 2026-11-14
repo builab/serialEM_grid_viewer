@@ -244,6 +244,7 @@ canvas.aligning{cursor:move}
       <div class="fields">
         <button class="btn small" id="moveBtn" aria-pressed="false" title="M">Move images: off</button>
         <button class="btn small" id="snapBtn">Snap by correlation</button>
+        <label class="check full" for="corrRot" title="Off: correlation only shifts the image and keeps its rotation"><input id="corrRot" type="checkbox" checked> Correlation also fits rotation (±5°)</label>
         <label class="check full" for="moveGroup"><input id="moveGroup" type="checkbox" checked> Move images that share a stage position together</label>
         <button class="btn small" id="resetPosBtn">Reset selected</button>
       </div>
@@ -270,11 +271,6 @@ canvas.aligning{cursor:move}
 
     <section class="sec">
       <h2>Image shift → stage</h2>
-      <div class="dsum" style="margin-bottom:8px">
-        <div><button class="btn small primary" id="calLoad">Load SerialEMcalibrations.txt</button> <button class="btn small" id="calClear" hidden>Forget</button></div>
-        <div class="meta" id="calStatus">With the calibration file, each image uses the matrix for its own MagIndex and CameraIndex. Without it, the values below apply to all images.</div>
-        <input type="file" id="calInput" accept=".txt,.bak,text/plain" hidden>
-      </div>
       <div class="fields">
         <label class="field" for="isScale">µm per IS unit<input id="isScale" type="number" step="0.01" value="1"></label>
         <label class="field" for="isRot">IS rotation (°)<input id="isRot" type="number" step="0.5" value="0"></label>
@@ -282,7 +278,7 @@ canvas.aligning{cursor:move}
         <label class="check full" for="useRefined"><input id="useRefined" type="checkbox" checked> Use positions refined by correlation <span id="refCount"></span></label>
         <button class="btn small" id="refClear">Clear refined positions</button>
       </div>
-      <p class="hint">Fallback when no calibration matches: box center = <code>StagePosition</code> + scale · R(θ) · (IS<sub>x</sub>, −IS<sub>y</sub>). mdoc <code>ImageShift</code> is in SerialEM's basic units, close to µm on Thermo Fisher scopes.</p>
+      <p class="hint">Box center = <code>StagePosition</code> + scale · R(θ) · (IS<sub>x</sub>, −IS<sub>y</sub>). mdoc <code>ImageShift</code> is in SerialEM's basic units, close to µm on Thermo Fisher scopes.</p>
     </section>
 
     <section class="sec">
@@ -395,8 +391,6 @@ function isUm(sec, doc, keepUser){
   const U = doc && keepUser !== false ? userCalFor(doc, sec) : null;
   if(U){ if(a.length < 2) a = [0, 0]; return [U.m[0]*a[0] + U.m[1]*a[1] + U.c[0], U.m[2]*a[0] + U.m[3]*a[1] + U.c[1]]; }
   if(a.length < 2) return [0,0];
-  const T = doc ? calMatrixFor(doc, sec) : null;
-  if(T) return [T.m[0]*a[0] + T.m[1]*a[1], T.m[2]*a[0] + T.m[3]*a[1]];
   const {isScale, isRot, isMirror} = state.settings;
   const t = isRot*Math.PI/180, x = a[0], y = isMirror ? -a[1] : a[1];
   return [isScale*(Math.cos(t)*x - Math.sin(t)*y), isScale*(Math.sin(t)*x + Math.cos(t)*y)];
@@ -602,8 +596,8 @@ function buildExposures(L, doc){
     const is = isUm(s, doc), b = boxSize(L, doc, s);
     const name = baseName(doc.name);
     const label = secs.length > 1 ? `${name} · ${s.kind} ${s.index}` : name;
-    const uc = userCalFor(doc, s), cm = uc ? null : calMatrixFor(doc, s);
-    if(uc) L.userCalUsed = uc; else if(cm) L.calUsed = cm; else if(nums(s.kv.ImageShift).some(v => v)) L.calMissing = true;
+    const uc = userCalFor(doc, s);
+    if(uc) L.userCalUsed = uc;
     pushImgItem(L, makeItem(L, doc, s, st[0]+is[0], st[1]+is[1], b.w, b.h, rot, label,
       secs.length > 1 ? String(s.index) : name, {sizeSrc:b.src, pxA:b.px*1e4, mag:b.mag, sz:b.sz}));
   }
@@ -626,14 +620,14 @@ function buildTilt(L, doc){
   if(!best){ L.warn.add(`${baseName(doc.name)}: no section with StagePosition.`); return; }
   const st = stagePos(doc, best), is = isUm(best, doc), b = boxSize(L, doc, best);
   const range = tilts.length ? `${Math.min(...tilts).toFixed(1)}° to ${Math.max(...tilts).toFixed(1)}°` : "n/a";
-  const uc = userCalFor(doc, best), cm = uc ? null : calMatrixFor(doc, best);
-  if(uc) L.userCalUsed = uc; else if(cm) L.calUsed = cm; else if(nums(best.kv.ImageShift).some(v => v)) L.calMissing = true;
+  const uc = userCalFor(doc, best);
+  if(uc) L.userCalUsed = uc;
   pushImgItem(L, makeItem(L, doc, best, st[0]+is[0], st[1]+is[1], b.w, b.h, rot, baseName(doc.name), baseName(doc.name),
     {sizeSrc:b.src, pxA:b.px*1e4, mag:b.mag, sz:b.sz, tiltCount:tilts.length, tiltRange:range, shownTilt:num(best.kv.TiltAngle)}));
 }
 
 function buildLayer(L){
-  L.items = []; L.warn = new Set(); L.montages = []; L.calUsed = null; L.calMissing = false; L.userCalUsed = null;
+  L.items = []; L.warn = new Set(); L.montages = []; L.userCalUsed = null;
   for(const doc of L.docs){
     if(L.type === "atlas" || L.type === "square") buildMontage(L, doc);
     else if(L.type === "tilt") buildTilt(L, doc);
@@ -1525,87 +1519,6 @@ function imgStatusText(L){
 }
 function updateImgStatus(L){ const el = document.getElementById(`limg${L.id}`); if(el) el.innerHTML = imgStatusText(L); }
 
-/* ---------- SerialEM calibrations: image shift -> stage µm per MagIndex and CameraIndex ---------- */
-const CAL_KEY = "mdocStageMap.calibrations";
-let CAL = null;            // {is: {"idx|cam": {m, mag}}, s2c: {"idx|cam": {m, mag}}, name}
-const calCache = new Map();
-function parseCalibrations(text, name){
-  const L = text.split(/\r?\n/), is = {}, s2c = {};
-  for(let i = 0; i < L.length; i++){
-    const t = L[i].trim().split(/\s+/);
-    if(t[0] === "ImageShiftMatrix"){
-      const n = Number(t[1]);
-      for(let k = 1; k <= n && i + k < L.length; k++){
-        const v = L[i + k].trim().split(/\s+/).map(Number);
-        if(v.length >= 6) is[`${v[0]}|${v[1]}`] = {m: v.slice(2, 6), mag: v[6]};
-      }
-      i += n;
-    } else if(t[0] === "StageToCameraMatrix" && t.length >= 7){
-      const v = t.slice(1).map(Number);
-      s2c[`${v[0]}|${v[1]}`] = {m: v.slice(2, 6), mag: v[v.length - 1]};
-    }
-  }
-  return {is, s2c, name, nIS: Object.keys(is).length, nS2C: Object.keys(s2c).length};
-}
-const inv2 = m => { const d = m[0]*m[3] - m[1]*m[2]; return [m[3]/d, -m[1]/d, -m[2]/d, m[0]/d]; };
-const mul2 = (a, b) => [a[0]*b[0] + a[1]*b[2], a[0]*b[1] + a[1]*b[3], a[2]*b[0] + a[3]*b[2], a[2]*b[1] + a[3]*b[3]];
-// IS units -> stage µm for one image, from its MagIndex and CameraIndex
-// pixel size (Å, unbinned) a camera would have at this mag, from its nearest stage calibration
-function camPixelAt(cam, idx, mag){
-  const rows = Object.entries(CAL.s2c).map(([k, v]) => ({i: Number(k.split("|")[0]), c: Number(k.split("|")[1]), v})).filter(x => x.c === cam);
-  if(!rows.length || !(mag > 0)) return NaN;
-  const r = rows.sort((a, b) => Math.abs(a.i - idx) - Math.abs(b.i - idx))[0], m = r.v.m;
-  return 1e4/Math.sqrt(Math.abs(m[0]*m[3] - m[1]*m[2]))*r.v.mag/mag;
-}
-// choose the ImageShiftMatrix row: the mag index decides; the camera column is matched if it can be
-function pickISRow(idx, cam, mag, unbinPx){
-  let rows = Object.entries(CAL.is).map(([k, v]) => ({i: Number(k.split("|")[0]), c: Number(k.split("|")[1]), v}));
-  if(isFinite(idx)) rows = rows.filter(r => r.i === idx);
-  else if(mag > 0) rows = rows.filter(r => Math.abs(r.v.mag/mag - 1) < 0.005);
-  else return null;
-  if(!rows.length) return null;
-  const exact = rows.find(r => r.c === cam);
-  if(exact) return {...exact, why: ""};
-  if(rows.length === 1) return {...rows[0], why: "only camera calibrated at this mag"};
-  if(unbinPx > 0){
-    const scored = rows.map(r => ({r, d: Math.abs(Math.log(camPixelAt(r.c, r.i, r.v.mag)/unbinPx))})).filter(x => isFinite(x.d)).sort((a, b) => a.d - b.d);
-    if(scored.length) return {...scored[0].r, why: "camera chosen by pixel size"};
-  }
-  return {...rows[0], why: "first camera at this mag"};
-}
-// IS units -> stage µm for one image, from its MagIndex (or nominal magnification) and camera
-function calMatrixFor(doc, sec){
-  if(!CAL) return null;
-  const idx = Math.round(num(get(doc, sec, "MagIndex"))), camIn = Math.round(num(get(doc, sec, "CameraIndex"))), magIn = num(get(doc, sec, "Magnification"));
-  const ps = num(get(doc, sec, "PixelSpacing")), bin = num(get(doc, sec, "Binning")) || 1;
-  const key = `${idx}|${camIn}|${magIn}|${ps}|${bin}`;
-  if(calCache.has(key)) return calCache.get(key);
-  const row = pickISRow(idx, camIn, magIn, ps > 0 ? ps/bin : NaN);
-  if(!row){ calCache.set(key, null); return null; }
-  const A = row.v, cam = row.c;
-  let C, how;
-  const S = CAL.s2c[`${row.i}|${cam}`];
-  if(S){ C = inv2(S.m); how = "stage calibration at this mag"; }
-  else {
-    // no stage calibration at this mag: take the camera orientation from the nearest calibrated mag
-    // of the same camera, and the pixel size from the mdoc (PixelSpacing is for the binned image)
-    // same camera; prefer mags whose image-shift rotation matches (same lens mode, e.g. not low mag), then the closest index
-    const isRot = m => Math.atan2(m[2], m[0])*180/Math.PI, r0 = isRot(A.m);
-    const all = Object.entries(CAL.s2c).map(([k, v]) => ({i: Number(k.split("|")[0]), c: Number(k.split("|")[1]), v}))
-      .map(x => { const a = CAL.is[`${x.i}|${x.c}`]; const d = a ? Math.abs(((isRot(a.m) - r0 + 540) % 360) - 180) : 999; return {...x, score: Math.abs(x.i - row.i) + (d > 10 ? 1000 : 0)}; })
-      .sort((a, b) => a.score - b.score);
-    const near = all.find(x => x.c === cam) || all[0];      // same camera if it has any stage calibration
-    if(!near || !(ps > 0)){ calCache.set(key, null); return null; }
-    const Ci = inv2(near.v.m), sc = Math.sqrt(Math.abs(Ci[0]*Ci[3] - Ci[1]*Ci[2])), um = ps/bin/1e4;
-    C = Ci.map(v => v/sc*um);
-    how = `orientation from mag index ${near.i}${near.c !== cam ? ` (camera ${near.c})` : ""}, pixel ${(ps/bin).toPrecision(4)} Å`;
-  }
-  const m = mul2(C, A.m), det = m[0]*m[3] - m[1]*m[2];
-  const out = {m, idx: row.i, cam, mag: A.mag, scale: Math.sqrt(Math.abs(det)), rot: Math.atan2(m[2], m[0])*180/Math.PI, mirrored: det < 0,
-    desc: `MagIndex ${row.i} (${A.mag}×), calibration camera ${cam}${row.why ? ", " + row.why : ""}; ${how}`};
-  calCache.set(key, out);
-  return out;
-}
 function calLine(L){
   if(L.type !== "exposure" && L.type !== "tilt") return "";
   const key = L.items.length ? magKey(L.items[0].doc, L.items[0].sec) : null;
@@ -1613,25 +1526,8 @@ function calLine(L){
   const nref = L.items.filter(it => it.refined).length;
   const refLine = nref ? `<div class="limg">${nref} of ${L.items.length} positions refined by correlation.</div>` : "";
   if(L.userCalUsed){ const u = L.userCalUsed; return `<div class="limg">Image shift from your calibration at ${esc(magLabel(key))}: ${u.n} points${u.n > 3 ? `, fit error ${u.rms.toFixed(2)} µm` : ""}, ${u.scale.toFixed(3)} µm per unit, ${u.rot.toFixed(1)}°${u.mirrored ? ", mirrored" : ""} (${esc(u.date)})</div>${refLine}${btns}`; }
-  return calLineFile(L) + refLine + btns;
+  return refLine + btns;
 }
-function calLineFile(L){
-  if(L.calUsed){ const c = L.calUsed; return `<div class="limg">Image shift from calibration: MagIndex ${c.idx} (${c.mag}×), camera ${c.cam}: ${c.scale.toFixed(3)} µm per unit, ${c.rot.toFixed(1)}°${c.mirrored ? ", mirrored" : ""}</div>`; }
-  if(CAL && L.calMissing){
-    const it = L.items[0], idx = it ? get(it.doc, it.sec, "MagIndex") : null, mag = it ? get(it.doc, it.sec, "Magnification") : null;
-    return `<div class="limg" style="color:var(--warn)">No calibration row for MagIndex ${esc(idx ?? "?")} (${esc(mag ?? "?")}×) in the calibration file; using the fallback settings.</div>`;
-  }
-  return "";
-}
-function setCalibrations(cal, save){
-  CAL = cal; calCache.clear();
-  if(save){ try { cal ? localStorage.setItem(CAL_KEY, JSON.stringify(cal)) : localStorage.removeItem(CAL_KEY); } catch(e){} }
-  $("#calStatus").textContent = cal ? `Using ${cal.name}: ${cal.nIS} image-shift and ${cal.nS2C} stage calibrations. Each image picks its own MagIndex and CameraIndex.` : "With the calibration file, each image uses the matrix for its own MagIndex and CameraIndex. Without it, the values below apply to all images.";
-  $("#calClear").hidden = !cal;
-  rebuildKeepFocus();
-}
-function loadSavedCalibrations(){ try { const c = JSON.parse(localStorage.getItem(CAL_KEY) || "null"); if(c && c.is) setCalibrations(c, false); } catch(e){} }
-
 /* ---------- your own image-shift calibration: true = StagePosition + M·IS + c, per mag index ---------- */
 const UCAL_KEY = "mdocStageMap.userISCal";
 let USERCAL = {};
@@ -1797,14 +1693,15 @@ const insideBox = (x, y, it) => { const t = it.rot*Math.PI/180, dx = x - it.cx, 
 async function matchRegion(fixedParts, mov, R, res, angles, lim, hpR){
   const A = renderParts(fixedParts, R, res, false), MA = renderParts(fixedParts, R, res, true);
   const a = prepMatch(A.out, MA.out, A.W, A.H, hpR);
-  const jobs = angles.map(ang => {
-    const part = {...mov, rot: ang};
+  const vars = angles.map(v => typeof v === "number" ? {rot: v, k: 1} : v);
+  const jobs = vars.map(v => {
+    const part = {...mov, rot: v.rot, w: mov.w*v.k, h: mov.h*v.k};
     const B = renderParts([part], R, res, false), MB = renderParts([part], R, res, true);
     return {a, ma: MA.out, b: prepMatch(B.out, MB.out, B.W, B.H, hpR), mb: MB.out, w: A.W, h: A.H, limX: lim, limY: lim};
   });
   const out = await nccBatch(jobs);
   let k = 0; out.forEach((r, i) => { if(r.score > out[k].score) k = i; });
-  return {dx: out[k].dx*res, dy: -out[k].dy*res, rot: angles[k], score: out[k].score};
+  return {dx: out[k].dx*res, dy: -out[k].dy*res, rot: vars[k].rot, k: vars[k].k, score: out[k].score, all: out.map((r, i) => ({...vars[i], score: r.score}))};
 }
 function imageGroups(){
   const g = new Map();
@@ -1841,7 +1738,7 @@ function renderRefPanel(){
       <table><tr><th>Acquisition</th><th>Score</th><th>Shift µm</th><th>Rot °</th></tr>${r.results.recs.map(x => row(x)).join("")}</table>
       <div class="res">${esc(r.results.summary)}</div>`;
   }
-  el.innerHTML = `<h3>Refine positions by correlation</h3>
+  el.innerHTML = `<h3>Refine positions by correlation · ${howTxt(corrRot)}</h3>
     <div class="step">Step 1 matches each View image to the square map. Step 2 matches each acquisition image inside its corrected View image. ${focus ? `Square map: <b>${esc(focus.name)}</b>.` : `<b>Click into a square map first</b>; only images on it are refined.`}</div>
     <label class="field" for="refView">View images<select id="refView">${opt(r.viewId, "None")}</select></label>
     <label class="field" for="refAcq">Acquisition images<select id="refAcq">${opt(r.acqId)}</select></label>
@@ -1889,9 +1786,8 @@ async function runRefine(){
         for(const t of parts) t.canvas = (await imageAt(t.doc, t.sec, res)).canvas;
         const mov = {canvas: (await imageAt(v.doc, v.sec, res)).canvas, cx: v.cx, cy: v.cy, w: v.w, h: v.h, flip};
         const hpR = Math.max(2, Math.round(2*hw/res/25)), lim = Math.round(m/res);
-        const coarse = [-6, -4.5, -3, -1.5, 0, 1.5, 3, 4.5, 6].map(d => base + d);
-        let best = await matchRegion(parts, mov, R, res, coarse, lim, hpR);
-        best = await matchRegion(parts, mov, R, res, [best.rot - 0.75, best.rot, best.rot + 0.75], lim, hpR);
+        let best = await matchRegion(parts, mov, R, res, rotAngles(v.refined ? v.rot : base, corrRot, 1.25), lim, hpR);
+        if(corrRot) best = await matchRegion(parts, mov, R, res, [best.rot - 0.6, best.rot, best.rot + 0.6], lim, hpR);
         out.views.push({it: v, name, ...best, flip, cx: v.cx + best.dx, cy: v.cy + best.dy});
       } catch(e){ out.views.push({it: v, name, err: e.message}); }
     }
@@ -1920,7 +1816,7 @@ async function runRefine(){
         const fx = sx + c1.dx, fy = sy + c1.dy, m2 = Math.max(0.05, Math.min(0.3, 4*r1 + 0.1*Math.max(a.w, a.h)));
         const R2 = [fx-hw-m2, fx+hw+m2, fy-hw-m2, fy+hw+m2];
         const r2 = Math.max(nativeUm(V.x.it.doc, V.x.it.sec), nativeUm(a.doc, a.sec), (R2[1]-R2[0])/400);
-        const c2 = await matchRegion([await vpart(r2)], await movAt(r2, fx, fy), R2, r2, [-0.5, 0, 0.5].map(d => c1.rot + d), Math.round(m2/r2), Math.max(2, Math.round(2*hw/r2/25)));
+        const c2 = await matchRegion([await vpart(r2)], await movAt(r2, fx, fy), R2, r2, corrRot ? [-0.5, 0, 0.5].map(d => c1.rot + d) : [c1.rot], Math.round(m2/r2), Math.max(2, Math.round(2*hw/r2/25)));
         const best = {dx: V.x.dx + c1.dx + c2.dx, dy: V.x.dy + c1.dy + c2.dy, rot: c2.rot, score: Math.min(c1.score, c2.score) > 0 ? c2.score : Math.min(c1.score, c2.score)};
         out.recs.push({it: a, name, ...best, flip, view: V.x, cx: a.cx + best.dx, cy: a.cy + best.dy});
       } catch(e){ out.recs.push({it: a, name, err: e.message}); }
@@ -1993,8 +1889,6 @@ function saveRefCalibrations(){
 }
 // the conversion isUm would use, ignoring the user's calibration (for offset-only fits)
 function currentISMatrix(doc, sec){
-  const T = calMatrixFor(doc, sec);
-  if(T) return {m: T.m};
   const {isScale, isRot, isMirror} = state.settings, t = isRot*Math.PI/180, my = isMirror ? -1 : 1;
   return {m: [isScale*Math.cos(t), -isScale*Math.sin(t)*my, isScale*Math.sin(t), isScale*Math.cos(t)*my]};
 }
@@ -2088,6 +1982,13 @@ async function alignOffset(mont0){
 }
 
 /* ---------- matching one image against the square map under it (used by Snap and the PACEtomo anchor) ---------- */
+// every correlation either only shifts the image, or also tries rotations within ±ROT_SPAN of its current one
+const ROT_SPAN = 5, ROT_KEY = "mdocStageMap.corrRot";
+let corrRot = true;
+try { corrRot = localStorage.getItem(ROT_KEY) !== "0"; } catch(e){}
+const useRot = on => typeof on === "boolean" ? on : corrRot;
+const rotAngles = (base, on, step) => { if(!on) return [base]; const a = []; for(let d = -ROT_SPAN; d <= ROT_SPAN + 1e-9; d += step) a.push(base + d); return a; };
+const howTxt = on => on ? `shift + rotation ±${ROT_SPAN}°` : "shift only";
 function squareFor(cx, cy){
   const cands = [];
   for(const L of state.layers){
@@ -2110,26 +2011,49 @@ async function squareParts(L, key){
   if(!parts.length) throw new Error("the square map images could not be read");
   return {parts, name: m.name};
 }
-// mov: {doc, sec, cx, cy, w, h}; opts: {margin µm, rot (null = square map orientation), span °, step °}
+// mov: {doc, sec, cx, cy, w, h}; opts: {margin µm, rot (null = square map orientation), rotate, scales (multipliers of the size to try)}
+// Pass 1 searches the whole margin on a grid of about 420 px. Pass 2 repeats a small search with the
+// pieces read from the .mrc at their own pixel size (grid up to 900 px), so the result is not limited by pass 1.
 async function matchToSquare(mov, opts){
   const sq = squareFor(mov.cx, mov.cy);
   if(!sq) throw new Error("no square map under it. Open the square map mdoc and its .mrc");
   const {parts: mmm, name} = await squareParts(sq.L, sq.m.key);
   const base = opts.rot != null ? opts.rot : mmm[0].rot, flip = mmm[0].flip || 1;
-  const hw = Math.hypot(mov.w, mov.h)/2, m = opts.margin;
+  const scales = opts.scales && opts.scales.length ? opts.scales : [1], kmax = Math.max(1, ...scales);
+  const hw = Math.hypot(mov.w, mov.h)/2*kmax, m = opts.margin;
   const R = [mov.cx-hw-m, mov.cx+hw+m, mov.cy-hw-m, mov.cy+hw+m];
   const parts = mmm.filter(t => Math.abs(t.cx - mov.cx) < Math.hypot(t.w, t.h)/2 + hw + m && Math.abs(t.cy - mov.cy) < Math.hypot(t.w, t.h)/2 + hw + m);
   if(!parts.length) throw new Error("it is not on the square map");
-  const res = Math.max(Math.min(...parts.map(t => nativeUm(t.doc, t.sec))), nativeUm(mov.doc, mov.sec) || 0, (R[1]-R[0])/420);
-  for(const t of parts) t.canvas = (await imageAt(t.doc, t.sec, res)).canvas;
-  const mv = {canvas: (await imageAt(mov.doc, mov.sec, res)).canvas, cx: mov.cx, cy: mov.cy, w: mov.w, h: mov.h, flip};
+  const nat = Math.max(Math.min(...parts.map(t => nativeUm(t.doc, t.sec))), nativeUm(mov.doc, mov.sec) || 0);
+  const res = Math.max(nat, (R[1]-R[0])/420);
+  const load = async r => { for(const t of parts) t.canvas = (await imageAt(t.doc, t.sec, r)).canvas; return {canvas: (await imageAt(mov.doc, mov.sec, r)).canvas, w: mov.w, h: mov.h, flip}; };
+  let mv = {...await load(res), cx: mov.cx, cy: mov.cy};
   const hpR = Math.max(2, Math.round(2*hw/res/25)), lim = Math.max(2, Math.round(m/res));
-  const span = opts.span ?? 6, step = opts.step ?? 1.5, coarse = [];
-  for(let d = -span; d <= span + 1e-9; d += step) coarse.push(base + d);
-  let best = await matchRegion(parts, mv, R, res, coarse, lim, hpR);
-  best = await matchRegion(parts, mv, R, res, [best.rot - step/2, best.rot, best.rot + step/2], lim, hpR);
-  return {...best, flip, square: name};
+  const step = 1.25;
+  let best = await matchRegion(parts, mv, R, res, rotAngles(base, opts.rotate, step), lim, hpR);
+  if(opts.rotate) best = await matchRegion(parts, mv, R, res, [best.rot - step/2, best.rot, best.rot + step/2], lim, hpR);
+  // size: only leave 1 when another size matches clearly better
+  let k = 1;
+  if(scales.length > 1){
+    const c = await matchRegion(parts, mv, R, res, scales.map(q => ({rot: best.rot, k: q})), lim, hpR);
+    const one = (c.all.find(v => Math.abs(v.k - 1) < 1e-9) || {score: best.score}).score;
+    if(c.k !== 1 && c.score > one + 0.04){
+      let b = c;
+      for(const d of [0.025, 0.0125]){ const f = await matchRegion(parts, mv, R, res, [b.k - d, b.k, b.k + d].map(q => ({rot: best.rot, k: q})), lim, hpR); if(f.score >= b.score) b = f; }
+      k = b.k; best = {...b};
+    }
+  }
+  let used = res;
+  const m2 = 2.5*res, res2 = Math.max(nat, (2*hw + 2*m2)/900);
+  if(res2 < res*0.8){
+    const cx = mov.cx + best.dx, cy = mov.cy + best.dy, R2 = [cx-hw-m2, cx+hw+m2, cy-hw-m2, cy+hw+m2];
+    mv = {...await load(res2), cx, cy};
+    const f = await matchRegion(parts, mv, R2, res2, (opts.rotate ? [best.rot - step/4, best.rot, best.rot + step/4] : [best.rot]).map(q => ({rot: q, k})), Math.max(2, Math.round(m2/res2)), Math.max(2, Math.round(2*hw/res2/25)));
+    if(f.score > 0.15 && f.score >= 0.6*best.score){ best = {dx: best.dx + f.dx, dy: best.dy + f.dy, rot: f.rot, score: f.score}; used = res2; }
+  }
+  return {dx: best.dx, dy: best.dy, rot: best.rot, score: best.score, k, flip, square: name, res: used};
 }
+const resTxt = r => r >= 0.1 ? `${r.toFixed(2)} µm/px` : `${Math.round(r*1000)} nm/px`;
 
 /* ---------- Method 1: place exposures and tilt series by hand (saved positions, not a calibration) ---------- */
 const isImgItem = it => !!it && (it.L.type === "exposure" || it.L.type === "tilt");
@@ -2175,19 +2099,19 @@ function rotateSelected(d){
     moveMsg(`${g.name}: View rotation ${g.rot.toFixed(1)}°.`);
   } else moveMsg("Select an image first.");
 }
-async function snapSelected(){
-  const it = state.selected;
-  if(!isImgItem(it)){ if(state.paceSel) return anchorPace(state.paceSel); return moveMsg("Select an exposure, a tilt series or a PACEtomo View first."); }
+async function snapSelected(rotOn){
+  const it = state.selected, rotate = useRot(rotOn);
+  if(!isImgItem(it)){ if(state.paceSel) return anchorPace(state.paceSel, rotate); return moveMsg("Select an exposure, a tilt series or a PACEtomo View first."); }
   const mem = groupMembers(it), btn = $("#snapBtn");
   btn.disabled = true; moveMsg("Matching the selected image to the square map…");
   try {
     const margin = Math.min(3, Math.max(0.3, 0.6*Math.max(it.w, it.h)));
-    const r = await matchToSquare({doc: it.doc, sec: it.sec, cx: it.cx, cy: it.cy, w: it.w, h: it.h}, {margin, rot: it.refined ? it.rot : null, span: it.refined ? 2 : 6, step: 1});
+    const r = await matchToSquare({doc: it.doc, sec: it.sec, cx: it.cx, cy: it.cy, w: it.w, h: it.h}, {margin, rot: it.refined ? it.rot : null, rotate});
     if(r.score < 0.15){ moveMsg(`Match score ${r.score.toFixed(2)} is too low, so nothing was moved. Drag it closer and snap again.`); return; }
     const dr = r.rot - it.rot;
     for(const m of mem){ m.cx += r.dx; m.cy += r.dy; m.rot += dr; m.flip = r.flip; }
     commitManual(mem, {score: r.score});
-    moveMsg(`Snapped ${mem.length > 1 ? `${mem.length} images` : "the image"} by ${Math.hypot(r.dx, r.dy).toFixed(2)} µm, rotation ${r.rot.toFixed(1)}°, score ${r.score.toFixed(2)}.${r.score < 0.3 ? " Low score: check by eye." : ""}`);
+    moveMsg(`Snapped ${mem.length > 1 ? `${mem.length} images` : "the image"} by ${Math.hypot(r.dx, r.dy).toFixed(2)} µm (${howTxt(rotate)}), rotation ${r.rot.toFixed(1)}°, score ${r.score.toFixed(2)}, matched at ${resTxt(r.res)}.${r.score < 0.3 ? " Low score: check by eye." : ""}`);
   } catch(e){ moveMsg(`Snap failed: ${e.message}`); }
   finally { btn.disabled = false; }
 }
@@ -2316,7 +2240,7 @@ function renderAlignBar(){
       <div class="k">Drag anywhere · arrows nudge (Shift ×10) · ${a.kind !== "offset" ? "[ ] rotate · " : ""}Space-drag or middle-drag pans · D difference view</div></div>
     <span class="d" id="abDelta"></span>
     <label title="Show the moving images in difference mode: features that line up go dark"><input type="checkbox" id="abDiff" ${ghostDiff ? "checked" : ""}> Difference</label>
-    <div class="row"><button class="btn small" id="abAuto" title="Fine-tune by correlation">Auto-refine</button><button class="btn small" id="abCancel" title="Esc">Cancel</button><button class="btn small primary" id="abDone" title="Enter">Done</button></div>`;
+    <div class="row"><button class="btn small" id="abAuto" title="Fine-tune by correlation: ${howTxt(corrRot)}">Auto-refine</button><button class="btn small" id="abCancel" title="Esc">Cancel</button><button class="btn small primary" id="abDone" title="Enter">Done</button></div>`;
   updateAlignDelta();
 }
 function updateAlignDelta(){ const a = state.align, el = $("#abDelta"); if(a && el) el.textContent = `Δ ${a.applied[0] >= 0 ? "+" : ""}${a.applied[0].toFixed(2)}, ${a.applied[1] >= 0 ? "+" : ""}${a.applied[1].toFixed(2)} µm`; }
@@ -2340,13 +2264,15 @@ function openCtxMenu(p){
     const off = state.settings.offset;
     if(pg) groups.push({hd: `PACEtomo · ${pg.root || pg.name}`, items: [
       ["Align View group to square map…", () => startAlign({kind: "pace", g: pg})],
-      ["Anchor on square map (correlation)", () => anchorPace(pg), !pg.view || pg.busy],
-      ["Refine targets in View (correlation)", () => refinePace(pg), !pg.view || pg.busy],
+      ["Align by correlation (shift only)", () => anchorPace(pg, false), !pg.view || pg.busy],
+      [`Align by correlation (shift + rotation ±${ROT_SPAN}°)`, () => anchorPace(pg, true), !pg.view || pg.busy],
+      ["Refine targets inside the View", () => refinePace(pg), !pg.view || pg.busy],
       ["Find new tilt series", () => openPaceTS(pg)],
       ["Reset group alignment", () => resetPace(pg), pg.busy]]});
     if(isImgItem(it)) groups.push({hd: `${TYPES[it.L.type].label} · ${it.label}`, items: [
       ["Move onto square map…", () => startAlign({kind: "item", it})],
-      ["Snap to square map (correlation)", () => { state.selected = it; state.paceSel = null; snapSelected(); }],
+      ["Align by correlation (shift only)", () => { state.selected = it; state.paceSel = null; snapSelected(false); }],
+      [`Align by correlation (shift + rotation ±${ROT_SPAN}°)`, () => { state.selected = it; state.paceSel = null; snapSelected(true); }],
       ["Reset position", () => { state.selected = it; state.paceSel = null; resetSelected(); }, !REFINED[refKey(it)]]]});
     if(sq && sq.montage) groups.push({hd: `Square map · ${sq.montage.name}`, items: [
       ["Align square to atlas…", () => startAlign({kind: "offset", m: sq.montage}), !hasAtlas, noAtlas],
@@ -2382,7 +2308,7 @@ const PACE = [];
 let paceSeq = 0;
 function savePaceStore(){ try { localStorage.setItem(PACE_KEY, JSON.stringify(PACESTORE)); } catch(e){} }
 function savePace(g){
-  PACESTORE[g.key] = {delta: g.delta, rot: g.rot, rotSet: !!g.rotSet, flip: g.flip, anchored: g.anchored, score: g.score, prev: g.prev, date: new Date().toLocaleString()};
+  PACESTORE[g.key] = {delta: g.delta, rot: g.rot, rotSet: !!g.rotSet, flip: g.flip, scale: g.scale, anchored: g.anchored, score: g.score, prev: g.prev, date: new Date().toLocaleString()};
   savePaceStore();
 }
 function parseTgts(text){
@@ -2445,7 +2371,7 @@ async function openPace(kind, path, text){
   const sv = PACESTORE[key] || {};
   const g = {id: ++paceSeq, key, kind, path, dir: dirOf(path), name: file.replace(/\.txt$/i, ""), root, settings: t.settings, targets,
     viewfile: targets[0].viewfile || `${root}_tgt_001_view.mrc`, view: null, previews: {}, visible: true, showImg: true,
-    delta: sv.delta || [0, 0], rot: sv.rot ?? null, rotSet: !!sv.rotSet, flip: sv.flip || 1, anchored: !!sv.anchored, score: sv.score ?? null, prev: sv.prev || {},
+    delta: sv.delta || [0, 0], scale: sv.scale > 0 ? sv.scale : 1, rot: sv.rot ?? null, rotSet: !!sv.rotSet, flip: sv.flip || 1, anchored: !!sv.anchored, score: sv.score ?? null, prev: sv.prev || {},
     status: sv.anchored ? `Anchor restored (${sv.date || "earlier"}).` : "Not anchored yet: positions are SerialEM's nominal stage positions.", err: "", busy: false};
   const missing = targets.filter(x => !x.stage).length;
   if(missing) g.err = `${missing} target${missing === 1 ? "" : "s"} without stageX/stageY are not shown.`;
@@ -2509,7 +2435,7 @@ function paceTargetPos(g, t, raw){
   const o = paceOff(), p = !raw && g.prev[t.no] && g.prev[t.no].ok ? g.prev[t.no].d : [0, 0];
   return [t.stage[0] + g.delta[0] + o[0] + p[0], t.stage[1] + g.delta[1] + o[1] + p[1]];
 }
-const paceViewBox = g => { const c = paceViewCenter(g); return {cx: c[0], cy: c[1], w: g.view.w, h: g.view.h, rot: paceRot(g), flip: g.flip}; };
+const paceViewBox = g => { const c = paceViewCenter(g); return {cx: c[0], cy: c[1], w: g.view.w*g.scale, h: g.view.h*g.scale, rot: paceRot(g), flip: g.flip}; };
 function paceMatch(it){
   const name = baseName(it.doc.name).toLowerCase(), dir = dirOf(it.doc.src.path || "");
   let loose = null;
@@ -2534,27 +2460,31 @@ function zoomPace(g){
   if(g.view) pts.push(paceViewBox(g));
   setFocus(null); animateTo(viewFor(pts, 0.6));
 }
-async function anchorPace(g){
+async function anchorPace(g, rotOn){
   if(g.busy) return;
-  if(!g.view){ g.status = "The View image is not loaded, so the area cannot be anchored. Place it by dragging with Move on."; renderPace(); return; }
-  g.busy = true; g.status = "Matching the View image to the square map…"; renderPace();
+  if(!g.view){ g.status = "The View image is not loaded, so the area cannot be anchored. Place it by dragging instead."; renderPace(); return; }
+  const rotate = useRot(rotOn);
+  g.busy = true; g.status = `Matching the View image to the square map (${howTxt(rotate)})…`; renderPace();
   try {
-    const c = paceViewCenter(g), again = g.anchored;
-    const margin = again ? Math.min(3, Math.max(1, 0.15*Math.max(g.view.w, g.view.h))) : Math.min(8, Math.max(2, 0.4*Math.max(g.view.w, g.view.h)));
-    const r = await matchToSquare({doc: g.view.doc, sec: g.view.sec, cx: c[0], cy: c[1], w: g.view.w, h: g.view.h},
-      {margin, rot: again || g.rotSet ? paceRot(g) : null, span: again ? 3 : 15, step: again ? 1 : 2.5});
-    if(r.score < 0.15){ g.status = `Match score ${r.score.toFixed(2)} is too low, so nothing was moved. Drag the View near its place (Move on) and anchor again.`; }
+    const b = paceViewBox(g), again = g.anchored;
+    const margin = again ? Math.min(3, Math.max(1, 0.15*Math.max(b.w, b.h))) : Math.min(8, Math.max(2, 0.4*Math.max(b.w, b.h)));
+    // the View's size comes from its pixel size; if that disagrees with the square map, a better-fitting size is used
+    const scales = again ? [0.96, 0.98, 1, 1.02, 1.04] : [0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1, 1.15, 1.2, 1.25];
+    const r = await matchToSquare({doc: g.view.doc, sec: g.view.sec, cx: b.cx, cy: b.cy, w: b.w, h: b.h}, {margin, rot: b.rot, rotate, scales});
+    if(r.score < 0.15){ g.status = `Match score ${r.score.toFixed(2)} is too low, so nothing was moved. Drag the View near its place (right-click it) and anchor again.`; }
     else {
       g.delta = [g.delta[0] + r.dx, g.delta[1] + r.dy]; g.rot = r.rot; g.rotSet = true; g.flip = r.flip; g.anchored = true; g.score = r.score;
-      g.status = `Anchored on ${r.square}: moved ${Math.hypot(r.dx, r.dy).toFixed(2)} µm, View rotation ${r.rot.toFixed(1)}°, score ${r.score.toFixed(2)}.${r.score < 0.3 ? " Low score: check by eye." : ""}`;
+      g.scale = +(g.scale*r.k).toFixed(4);
+      g.status = `Anchored on ${r.square} (${howTxt(rotate)}): moved ${Math.hypot(r.dx, r.dy).toFixed(2)} µm, View rotation ${r.rot.toFixed(1)}°${r.k !== 1 ? `, View resized ×${r.k.toFixed(3)} to fit the square map` : ""}, score ${r.score.toFixed(2)}, matched at ${resTxt(r.res)}.${r.score < 0.3 ? " Low score: check by eye." : ""}`;
       savePace(g);
     }
   } catch(e){ g.status = `Anchor failed: ${e.message}`; }
   g.busy = false; rebuildKeepFocus(); renderPace();
 }
 // match each tgt_00N.mrc Preview inside the anchored View image
-async function refinePace(g){
+async function refinePace(g, rotOn){
   if(g.busy) return;
+  const rotate = useRot(rotOn);
   if(!g.view){ g.status = "The View image is not loaded."; renderPace(); return; }
   const todo = g.targets.filter(t => t.tgtfile && t.stage);
   if(!todo.length){ g.status = "This target file names no tgt_00N.mrc Preview images (target pattern), so there is nothing to refine."; renderPace(); return; }
@@ -2570,28 +2500,28 @@ async function refinePace(g){
       const [sx, sy] = paceTargetPos(g, t, true);
       if(!insideBox(sx, sy, vb)){ outside++; delete g.prev[t.no]; continue; }
       const hw = Math.hypot(pv.w, pv.h)/2;
-      const fixedAt = async res => ({...vb, canvas: (await imageAt(g.view.doc, g.view.sec, res)).canvas});
+      const fixedAt = async res => ({...vb, canvas: (await imageAt(g.view.doc, g.view.sec, res/g.scale)).canvas});
       const movAt = async (res, cx, cy) => ({canvas: (await imageAt(pv.doc, pv.sec, res)).canvas, cx, cy, w: pv.w, h: pv.h, flip: g.flip});
       const m1 = Math.min(2, Math.max(0.4, 1.5*Math.max(pv.w, pv.h)));
       const R1 = [sx-hw-m1, sx+hw+m1, sy-hw-m1, sy+hw+m1];
-      const r1 = Math.max(g.view.px, pv.px, (R1[1]-R1[0])/400);
-      const angles = [-12, -9, -6, -3, 0, 3, 6, 9, 12].map(d => vb.rot + d);
+      const vpx = g.view.px*g.scale, r1 = Math.max(vpx, pv.px, (R1[1]-R1[0])/400);
+      const angles = rotAngles(vb.rot, rotate, 1.25);
       const c1 = await matchRegion([await fixedAt(r1)], await movAt(r1, sx, sy), R1, r1, angles, Math.round(m1/r1), Math.max(2, Math.round(2*hw/r1/25)));
       const fx = sx + c1.dx, fy = sy + c1.dy, m2 = Math.max(0.05, Math.min(0.3, 4*r1 + 0.1*Math.max(pv.w, pv.h)));
       const R2 = [fx-hw-m2, fx+hw+m2, fy-hw-m2, fy+hw+m2];
-      const r2 = Math.max(g.view.px, pv.px, (R2[1]-R2[0])/400);
-      const c2 = await matchRegion([await fixedAt(r2)], await movAt(r2, fx, fy), R2, r2, [-1, 0, 1].map(d => c1.rot + d), Math.round(m2/r2), Math.max(2, Math.round(2*hw/r2/25)));
+      const r2 = Math.max(vpx, pv.px, (R2[1]-R2[0])/400);
+      const c2 = await matchRegion([await fixedAt(r2)], await movAt(r2, fx, fy), R2, r2, rotate ? [-0.6, 0, 0.6].map(d => c1.rot + d) : [c1.rot], Math.round(m2/r2), Math.max(2, Math.round(2*hw/r2/25)));
       const score = Math.min(c1.score, c2.score);
       g.prev[t.no] = {d: [c1.dx + c2.dx, c1.dy + c2.dy], rot: c2.rot, score, ok: score > 0.2};
       if(score > 0.2) ok++; else failed++;
     } catch(e){ failed++; g.prev[t.no] = {d: [0, 0], rot: vb.rot, score: 0, ok: false, err: e.message}; }
   }
-  g.status = `Previews: ${ok} matched in the View, ${failed} not matched${outside ? `, ${outside} outside the View (kept at the anchored position)` : ""}.`;
+  g.status = `Previews (${howTxt(rotate)}): ${ok} matched in the View, ${failed} not matched${outside ? `, ${outside} outside the View (kept at the anchored position)` : ""}.`;
   g.busy = false; savePace(g); rebuildKeepFocus(); renderPace();
 }
 function resetPace(g){
   delete PACESTORE[g.key]; savePaceStore();
-  Object.assign(g, {delta: [0, 0], rot: null, rotSet: false, flip: 1, anchored: false, score: null, prev: {}, status: "Reset to SerialEM's nominal stage positions."});
+  Object.assign(g, {delta: [0, 0], scale: 1, rot: null, rotSet: false, flip: 1, anchored: false, score: null, prev: {}, status: "Reset to SerialEM's nominal stage positions."});
   rebuildKeepFocus(); renderPace();
 }
 function openPaceTS(g){
@@ -2606,7 +2536,8 @@ function renderPace(){
   box.innerHTML = PACE.map(g => {
     const n = g.targets.length, placed = state.layers.reduce((a, L) => a + L.items.filter(it => it.pace && it.pace.g === g).length, 0);
     const nprev = Object.values(g.prev).filter(p => p.ok).length;
-    const view = g.view ? `${g.viewfile} · ${fmtLen(g.view.w)} × ${fmtLen(g.view.h)}${g.view.doc.synthetic ? " (size from MRC header)" : ""}` : (g.err ? "" : `${g.viewfile} · loading…`);
+    const vsz = g.view && imageSize(g.view.doc, g.view.sec);
+    const view = g.view ? `${g.viewfile} · ${vsz ? `${vsz[0]}×${vsz[1]} px · ` : ""}${+(g.view.px*1e4).toPrecision(4)} Å/px (${g.view.doc.synthetic ? "MRC header" : "mdoc"}) → ${fmtLen(g.view.w*g.scale)} × ${fmtLen(g.view.h*g.scale)}${g.scale !== 1 ? ` (resized ×${g.scale})` : ""}` : (g.err ? "" : `${g.viewfile} · loading…`);
     const sel = state.paceSel === g ? ` style="border-color:${PACE_COLOR}"` : "";
     return `<div class="layer" data-pace="${g.id}"${sel}>
       <div class="layer-head">
@@ -2621,6 +2552,7 @@ function renderPace(){
         <div class="limg">${esc(g.status)}${g.anchored ? ` Offset ${g.delta[0].toFixed(2)}, ${g.delta[1].toFixed(2)} µm.` : ""}${nprev ? ` ${nprev} Preview${nprev === 1 ? "" : "s"} matched.` : ""}</div>
         ${g.err ? `<div class="lwarn">${esc(g.err)}</div>` : ""}
         <label class="lcheck full"><input type="checkbox" data-pact="img" ${g.showImg ? "checked" : ""}> Show the View and Preview images</label>
+        <label class="lcheck full" title="1 = the size from the View's pixel size. Anchor changes it when another size fits the square map clearly better.">View size ×<input type="number" data-pact="scale" step="0.01" min="0.2" max="5" value="${g.scale}" style="width:72px;margin-left:6px"></label>
         <div class="prow">
           <button class="btn small" data-pact="anchor" ${g.busy || !g.view ? "disabled" : ""}>${g.anchored ? "Re-anchor" : "Anchor on square map"}</button>
           <button class="btn small" data-pact="refine" ${g.busy || !g.view ? "disabled" : ""}>Refine targets in View</button>
@@ -2654,6 +2586,7 @@ $("#paceList").addEventListener("change", e => {
   const el = e.target, row = el.closest("[data-pace]"), g = row && PACE.find(x => x.id === Number(row.dataset.pace)); if(!g) return;
   if(el.dataset.pact === "vis"){ g.visible = el.checked; rebuildKeepFocus(); renderPace(); }
   else if(el.dataset.pact === "img"){ g.showImg = el.checked; render(); }
+  else if(el.dataset.pact === "scale"){ const v = Number(el.value); if(v >= 0.2 && v <= 5){ g.scale = v; savePace(g); renderPace(); render(); } }
 });
 function drawPace(){
   const s = state.view.s;
@@ -2698,7 +2631,7 @@ function sessionState(withStores){
     focus: mont && mont.doc ? {src: mont.doc.src, g: mont.g} : null,
     layers: state.layers.filter(L => L.docs.every(d => d.src.kind !== "demo")).map(L => ({type: L.type, name: L.name, color: L.color, visible: L.visible, rot: L.rot, showPieces: L.showPieces, loadImages: L.loadImages, alignMode: L.alignMode, paceKey: L.paceKey || undefined, docs: L.docs.map(d => ({kind: d.src.kind, path: d.src.path}))})),
     pace: PACE.map(g => ({kind: g.kind, path: g.path, visible: g.visible, showImg: g.showImg}))};
-  if(withStores) st.stores = {refined: REFINED, userCal: USERCAL, pace: PACESTORE, calibrations: CAL};
+  if(withStores) st.stores = {refined: REFINED, userCal: USERCAL, pace: PACESTORE};
   return st;
 }
 function stateMsg(t){ $("#stateStatus").textContent = t; setMsg(t); }
@@ -2765,7 +2698,6 @@ async function applyState(st){
     REFINED = st.stores.refined || {}; saveRefined();
     USERCAL = st.stores.userCal || {}; saveUserCal();
     PACESTORE = st.stores.pace || {}; savePaceStore();
-    setCalibrations(st.stores.calibrations || null, true);
   }
   const keep = {...state.settings};
   Object.assign(state.settings, st.settings || {}, {offset: {...keep.offset, ...((st.settings || {}).offset || {})}});
@@ -3167,7 +3099,7 @@ function showInspector(){
     ["Size from", it.extra.sizeSrc],
     ["Pixel × mag", it.extra.pxA > 0 && it.extra.mag > 0 ? `${(it.extra.pxA*it.extra.mag/1e4).toFixed(2)} µm (camera pixel, roughly constant per camera)` : "n/a"],
     ["Box rotation", `${it.rot.toFixed(2)}°`],
-    ...((it.L.type === "exposure" || it.L.type === "tilt") ? [["IS → stage", (() => { const T = calMatrixFor(it.doc, it.sec); return T ? `${T.desc}: [${T.m.map(v => v.toFixed(3)).join(", ")}]` : "fallback settings (no calibration for this MagIndex/CameraIndex)"; })()]] : []),
+    ...((it.L.type === "exposure" || it.L.type === "tilt") ? [["IS → stage", userCalFor(it.doc, it.sec) ? "your calibration for this magnification" : `${state.settings.isScale} µm per IS unit, ${state.settings.isRot}°${state.settings.isMirror ? ", Y inverted" : ""}`]] : []),
     ...(it.L.offsetApplied ? [["Atlas offset", `${state.settings.offset.x.toFixed(2)}, ${state.settings.offset.y.toFixed(2)} µm (included above)`]] : []),
     ...(it.refined ? [["Position", it.refined.manual ? `placed by hand (${it.refined.date || ""})` : `refined by correlation, score ${it.refined.score != null ? Number(it.refined.score).toFixed(2) : "?"} (${it.refined.date || ""})`]] : []),
     ...(it.pace ? [["PACEtomo", `${it.pace.g.name}, target ${it.pace.t.no}${it.pace.g.prev[it.pace.t.no] && it.pace.g.prev[it.pace.t.no].ok ? ", Preview matched in the View" : it.pace.g.anchored ? ", from the anchored View" : ", nominal stage position"}`]] : [])
@@ -3338,7 +3270,9 @@ $("#fileInput").addEventListener("change", e => openFiles(e.target.files, pendin
 $("#folderInput").addEventListener("change", e => setDataFolder([...e.target.files].map(f => ({file: f, path: f.webkitRelativePath || f.name}))));
 $("#clearAll").addEventListener("click", clearAll);
 $("#moveBtn").addEventListener("click", () => setMove(!state.move));
-$("#snapBtn").addEventListener("click", snapSelected);
+$("#snapBtn").addEventListener("click", () => snapSelected());
+$("#corrRot").checked = corrRot;
+$("#corrRot").addEventListener("change", e => { corrRot = e.target.checked; try { localStorage.setItem(ROT_KEY, corrRot ? "1" : "0"); } catch(err){} });
 $("#resetPosBtn").addEventListener("click", resetSelected);
 $("#paceOpen").addEventListener("click", async () => {
   if(data.server){
@@ -3364,25 +3298,6 @@ document.addEventListener("visibilitychange", () => { if(document.visibilityStat
 $("#offAlign").addEventListener("click", () => alignOffset());
 $("#useRefined").addEventListener("change", e => { state.settings.useRefined = e.target.checked; rebuildKeepFocus(); });
 $("#refClear").addEventListener("click", () => { REFINED = {}; saveRefined(); rebuildKeepFocus(); setMsg("Cleared all refined positions."); });
-function useCalibrationText(text, name){
-  const cal = parseCalibrations(text, name);
-  if(!cal.nIS){ setMsg(`${name} has no ImageShiftMatrix block; is it a SerialEMcalibrations file?`); return; }
-  setCalibrations(cal, true);
-  setMsg(`Loaded ${cal.nIS} image-shift calibrations from ${name}.`);
-}
-$("#calLoad").addEventListener("click", async () => {
-  if(data.server){
-    const r = await serverPick({purpose: "cal", mode: "open", ext: "txt,bak", title: "Load SerialEMcalibrations.txt from the server", sub: "Usually copied from C:\\ProgramData\\SerialEM on the microscope computer.", local: "Pick from this computer instead"});
-    if(!r) return;
-    if(!r.local){ const p = r.paths[0]; try { useCalibrationText(await readText("server", p), p.split("/").pop()); } catch(e){ setMsg(`Could not read ${p.split("/").pop()}: ${e.message}`); } return; }
-  }
-  $("#calInput").value = ""; $("#calInput").click();
-});
-$("#calInput").addEventListener("change", async e => {
-  const f = e.target.files[0]; if(!f) return;
-  useCalibrationText(await f.text(), f.name);
-});
-$("#calClear").addEventListener("click", () => setCalibrations(null, true));
 $("#offReset").addEventListener("click", () => setOffset(0, 0, "Offset reset to 0."));
 $("#offOn").addEventListener("change", e => { state.settings.offset.on = e.target.checked; saveOffset(); rebuildKeepFocus(); });
 ["offX", "offY"].forEach(id => $("#" + id).addEventListener("change", () => setOffset(Number($("#offX").value) || 0, Number($("#offY").value) || 0, "Offset typed in.")));
@@ -3468,7 +3383,7 @@ loadDocs(demoDocs(), null);
 renderData();
 saveRefined();
 loadOffset();
-loadSavedCalibrations();
+try { localStorage.removeItem("mdocStageMap.calibrations"); } catch(e){}    // SerialEMcalibrations support was removed
 detectServer();
 state.demo = true;
 renderLayers();

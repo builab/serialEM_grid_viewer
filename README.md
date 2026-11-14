@@ -16,6 +16,7 @@ It is one HTML page (`index.html`) plus a small Python server (`mdoc_server.py`)
 - [PACEtomo](#pacetomo)
 - [Details panel](#details-panel)
 - [Acquisition movie](#acquisition-movie)
+- [PACEtomo movie](#pacetomo-movie)
 - [Sessions](#sessions)
 - [Settings](#settings)
 - [Keyboard and mouse](#keyboard-and-mouse)
@@ -116,6 +117,8 @@ While aligning, the moving images are drawn at 50 % opacity. Press **D** for a d
 - Each group has its own colour (bright yellow-green by default). Each target is drawn as a circle around its image.
 - **View size:** if the View's pixel size in its mdoc disagrees with the square map, aligning by correlation also fits the View's size. The factor is remembered per magnification and reused for the next group. You can also set it by hand under the group's **More** ("View size ×").
 - **Find new tilt series** picks up tilt series acquired after the file was opened.
+- **Tilt series opened on their own** are recognized by name (the `tsfile` entries in the `_tgts.txt`), whenever and from whichever folder they are opened. They join the group and sit at their target.
+- **A tilt series can be aligned on its own** (right-click it). It keeps its own position and stays part of the group; its target circle follows it.
 
 ## Details panel
 
@@ -146,6 +149,20 @@ For the movie, the square map is rebuilt as one image: every piece is re-read at
 ![Movie frames](docs/images/movie-frames.png)
 
 **Encoding.** With ffmpeg on the server machine, the server encodes an H.264 `.mp4`. You can download it or save it into a shared folder. Without ffmpeg, the browser encodes a `.webm` frame by frame. The dialog says which one it will use. Both give exactly the duration shown in the preview.
+
+## PACEtomo movie
+
+Right-click the View of a PACEtomo area and choose **Make PACEtomo movie…**. The movie goes:
+
+1. Atlas → square map → zoom to the View.
+2. Picking the targets one by one: a box at each tilt series, a circle drawn around it, and its number.
+3. All tilt series in a grid, stepping through the tilt angles together.
+
+The tilt series stand in for their targets, at their aligned positions. Targets without a tilt series are picked but left out of the grid. The playback uses the same bidirectional order as the acquisition movie (start → lowest → highest → start), not the dose-symmetric acquisition order.
+
+The dialog has the same labels, camera, playback and output settings as the acquisition movie. The timing settings are the atlas, the zoom to the square, the square map, the zoom to the View, and the time per target.
+
+![PACEtomo movie frames](docs/images/pacetomo-movie.png)
 
 ## Sessions
 

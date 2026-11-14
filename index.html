@@ -199,6 +199,13 @@ dialog.fpick::backdrop{background:rgba(10,16,20,.45)}
 .alignbar label{display:flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap}
 canvas.aligning{cursor:move}
 
+details.settings>summary{cursor:pointer;font:600 11px/1.2 var(--font-body);text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+details.settings h3{margin:14px 0 6px;font:600 12.5px/1.2 var(--font-body)}
+details.more{grid-column:1/-1}
+details.more>summary{cursor:pointer;font-size:12px;color:var(--muted)}
+details.more>.layer-ctl{padding:6px 0 0}
+.nest{margin:-2px 0 8px 14px;padding-left:8px;border-left:2px solid var(--line)}
+.insp-body details.more{margin-top:6px}
 @media (max-width:760px){
   .app{grid-template-columns:1fr;grid-template-rows:auto 62vh auto;height:auto;min-height:100%}
   aside{border-right:none;border-top:1px solid var(--line);order:3}
@@ -213,12 +220,11 @@ canvas.aligning{cursor:move}
 <div class="app">
   <header>
     <h1>mdoc Stage Map <small>SerialEM · stage µm</small></h1>
-    <div class="opens" role="group" aria-label="Open mdoc files">
-      <button class="btn" data-open="atlas"><span class="sw" style="background:#8a96a0"></span>Open atlas</button>
-      <button class="btn" data-open="square"><span class="sw" style="background:#2f7fd8"></span>Open square maps</button>
-      <button class="btn" data-open="exposure"><span class="sw" style="background:#f2c200"></span>Open exposures</button>
-      <button class="btn" data-open="tilt"><span class="sw" style="background:#e0a100"></span>Open tilt series</button>
-      <button class="btn primary" id="openFolder">Choose data folder</button>
+    <div class="opens" role="group" aria-label="Files">
+      <button class="btn primary" id="openBtn" title="Atlas, square maps, exposures, tilt series or a PACEtomo _tgts.txt: the type is detected">Open…</button>
+      <button class="btn" id="openFolder">Choose data folder</button>
+      <button class="btn" id="stateSave">Save session…</button>
+      <button class="btn" id="stateLoad">Load session…</button>
     </div>
     <input type="file" id="fileInput" accept=".mdoc,.mrc,.st,.map,.mrcs,.ali,.txt" multiple hidden>
     <input type="file" id="tgtsInput" accept=".txt,.mdoc,.mrc" multiple hidden>
@@ -230,59 +236,44 @@ canvas.aligning{cursor:move}
     <section class="sec" id="dataSec">
       <h2>Data</h2>
       <div id="dataSource"></div>
-      <div id="dataBrowse"></div>
+      <button class="btn small full" id="stateRestore" hidden style="margin-top:6px">Restore last session</button>
+      <p class="hint" id="stateStatus" hidden></p>
     </section>
 
     <section class="sec">
       <h2>Layers <span class="act"><button class="btn small" id="clearAll">Clear all</button></span></h2>
       <div id="layers"></div>
-      <p class="hint">Select or drop the <code>.mdoc</code> and its <code>.mrc</code> together to see the images. Dropping a folder sets it as the data folder. Type, rotation and placement can be changed per layer.</p>
+      <p class="hint"><b>Right-click an image on the map</b> to zoom to it, align it by dragging or by correlation, or reset it. Click it to see its details.</p>
     </section>
 
-    <section class="sec">
-      <h2>Place images by hand</h2>
-      <div class="fields">
-        <button class="btn small" id="moveBtn" aria-pressed="false" title="M">Move images: off</button>
-        <button class="btn small" id="snapBtn">Snap by correlation</button>
-        <label class="check full" for="corrRot" title="Off: correlation only shifts the image and keeps its rotation"><input id="corrRot" type="checkbox" checked> Correlation also fits rotation (±5°)</label>
-        <label class="check full" for="moveGroup"><input id="moveGroup" type="checkbox" checked> Move images that share a stage position together</label>
-        <button class="btn small" id="resetPosBtn">Reset selected</button>
-      </div>
-      <p class="hint" id="moveStatus">Turn on Move, then drag an exposure or tilt series onto its feature on the square map. <code>[</code> and <code>]</code> rotate it (with Shift: 5°). Snap fine-tunes it by correlation with the square map. Positions are saved for display only; they do not change the calibration.</p>
-    </section>
-
-    <section class="sec">
-      <h2>PACEtomo targets <span class="act"><button class="btn small" id="paceOpen">Open _tgts.txt</button></span></h2>
-      <div id="paceList"></div>
-      <p class="hint">Open one <code>_tgts.txt</code> per area: its View image, target Previews and every tilt series acquired so far open with it, as one group. Right-click the View on the map to align the whole group onto the square map by dragging, or anchor it by correlation. When running without the server, select the <code>_tgts.txt</code> together with its <code>.mrc</code> and <code>.mdoc</code> files.</p>
-    </section>
-
-    <section class="sec">
-      <h2>Atlas offset</h2>
+    <details class="sec settings" id="settingsSec">
+      <summary>Settings</summary>
+      <h3>Atlas offset</h3>
       <div class="fields">
         <label class="field" for="offX">X (µm)<input id="offX" type="number" step="0.1" value="0"></label>
         <label class="field" for="offY">Y (µm)<input id="offY" type="number" step="0.1" value="0"></label>
         <label class="check full" for="offOn"><input id="offOn" type="checkbox" checked> Apply to square maps, exposures and tilt series</label>
-        <button class="btn small" id="offAlign">Align on this square</button>
         <button class="btn small" id="offReset">Reset to 0</button>
       </div>
-      <p class="hint" id="offStatus">Shifts everything taken after the atlas so it lines up with the atlas. Right-click a square map and choose <b>Align square to atlas…</b> to drag it into place, or click into a square map and press Align for correlation. Saved in this browser.</p>
-    </section>
+      <p class="hint" id="offStatus">Shifts everything taken after the atlas so it lines up with the atlas. Set it by right-clicking a square map.</p>
 
-    <section class="sec">
-      <h2>Image shift → stage</h2>
+      <h3>Alignment</h3>
+      <div class="fields">
+        <label class="check full" for="corrRot" title="Used by Auto-refine and by Refine by correlation. The right-click menu offers both."><input id="corrRot" type="checkbox" checked> Auto-refine also fits rotation (±5°)</label>
+        <label class="check full" for="moveGroup"><input id="moveGroup" type="checkbox" checked> Move images that share a stage position together</label>
+        <label class="check full" for="useRefined"><input id="useRefined" type="checkbox" checked> Use aligned positions <span id="refCount"></span></label>
+        <button class="btn small" id="refClear">Clear all aligned positions</button>
+      </div>
+
+      <h3>Image shift → stage</h3>
       <div class="fields">
         <label class="field" for="isScale">µm per IS unit<input id="isScale" type="number" step="0.01" value="1"></label>
         <label class="field" for="isRot">IS rotation (°)<input id="isRot" type="number" step="0.5" value="0"></label>
         <label class="check full" for="isMirror"><input id="isMirror" type="checkbox" checked> Invert IS Y (SerialEM default)</label>
-        <label class="check full" for="useRefined"><input id="useRefined" type="checkbox" checked> Use positions refined by correlation <span id="refCount"></span></label>
-        <button class="btn small" id="refClear">Clear refined positions</button>
       </div>
-      <p class="hint">Box center = <code>StagePosition</code> + scale · R(θ) · (IS<sub>x</sub>, −IS<sub>y</sub>). mdoc <code>ImageShift</code> is in SerialEM's basic units, close to µm on Thermo Fisher scopes.</p>
-    </section>
+      <p class="hint">Box center = <code>StagePosition</code> + scale · R(θ) · (IS<sub>x</sub>, −IS<sub>y</sub>).</p>
 
-    <section class="sec">
-      <h2>Display</h2>
+      <h3>Display</h3>
       <div class="fields">
         <label class="field" for="viewRot">View rotation (° CCW)<input id="viewRot" type="number" step="90" value="180"></label>
         <label class="field" for="gridDiam">Grid outline Ø (mm)<input id="gridDiam" type="number" step="0.05" min="0" value="2.44"></label>
@@ -291,18 +282,8 @@ canvas.aligning{cursor:move}
         <label class="check" for="showPieceNums"><input id="showPieceNums" type="checkbox"> Piece numbers</label>
         <label class="check full" for="flipY"><input id="flipY" type="checkbox"> Mirror stage Y</label>
       </div>
-      <p class="hint">180° matches the SerialEM Navigator. The axis marker at the bottom right shows where stage +X and +Y point.</p>
-    </section>
-
-    <section class="sec">
-      <h2>Session</h2>
-      <div class="fields">
-        <button class="btn small" id="stateSave">Save state…</button>
-        <button class="btn small" id="stateLoad">Load state…</button>
-        <button class="btn small full" id="stateRestore" hidden>Restore last session</button>
-      </div>
-      <p class="hint" id="stateStatus">Saves the open files, layer settings, view, atlas offset, calibrations, placed positions and PACEtomo anchors to a .json file. Loading reopens the files from the same server or data folder.</p>
-    </section>
+      <p class="hint">180° matches the SerialEM Navigator.</p>
+    </details>
 
   </aside>
 
@@ -316,7 +297,6 @@ canvas.aligning{cursor:move}
     <div class="banner" id="banner">Showing example data. Open your own mdoc files to replace it.<button class="btn small" id="bannerClear">Clear example</button></div>
     <div class="drop">Drop .mdoc files or a folder</div>
     <div class="tip" id="tip"></div>
-    <div class="calpanel" id="calPanel" hidden aria-live="polite"></div>
     <div class="calpanel" id="refPanel" hidden aria-live="polite"></div>
     <div class="ctxmenu" id="ctxMenu" role="menu" hidden></div>
     <div class="alignbar" id="alignBar" hidden aria-live="polite"></div>
@@ -418,7 +398,7 @@ function classify(doc){
     const mag = median(secs.map(s => num(get(doc, s, "Magnification"))));
     const ext = montageExtentUm(doc);
     if(ext > 500) return "atlas";
-    if(ext === 0 && mag > 0 && mag < 300) return "atlas";
+    if(mag > 0 && mag < 300) return "atlas";
     return "square";
   }
   const tilts = secs.map(s => num(s.kv.TiltAngle)).filter(v => !isNaN(v));
@@ -829,63 +809,21 @@ const hasData = () => !!(data.folder || data.server || data.extra.size);
 function openedPaths(){ const set = new Set(); for(const L of state.layers) for(const d of L.docs) set.add(`${d.src.kind}:${d.src.path}`); for(const g of PACE) set.add(g.key); return set; }
 
 function renderData(){
-  const src = $("#dataSource"), br = $("#dataBrowse");
+  const src = $("#dataSource"); if(!src) return;
+  const dirs = [...new Set([...state.layers.flatMap(L => L.docs.filter(d => d.src.kind !== "demo").map(d => parentApi(d.src.path))), ...PACE.map(g => g.dir.replace(/\/$/, ""))])].filter(Boolean);
+  const from = dirs.length ? `<div class="meta">Open files are from ${dirs.slice(0, 4).map(d => `<code>${esc(d)}</code>`).join(", ")}${dirs.length > 4 ? ` and ${dirs.length - 4} more folders` : ""}</div>` : "";
   if(data.server){
-    src.innerHTML = `<div class="dsum"><div>Connected to the local server</div><div class="meta">Roots: ${data.server.roots.map(r => `<code>${esc(r.name)}</code> = ${esc(r.path)}`).join(", ")}</div></div>
-      <div class="dtools"><input id="srvPath" type="text" spellcheck="false" placeholder="Folder or .mdoc path (absolute or root/…)" value="${esc(data.srvPath)}" aria-label="Server path"><button class="btn small" id="srvGo">Go</button></div>
-      <div class="dtools"><label class="check" for="srvRec"><input type="checkbox" id="srvRec" ${data.srvRecursive?"checked":""}> Include subfolders</label><button class="btn small" id="srvUp">Up</button></div>`;
+    src.innerHTML = `<div class="dsum"><div>Server <b>${esc(location.host)}</b></div><div class="meta">Shared: ${data.server.roots.map(r => `<code>${esc(r.name)}</code> = ${esc(r.path)}`).join(", ")}</div>${from}</div>`;
   } else if(data.folder){
-    src.innerHTML = `<div class="dsum"><div class="path">${esc(data.folder.name)}/</div><div class="meta">${data.folder.mdocs.length} mdoc · ${data.folder.mrc} MRC · ${data.folder.count} files</div><div><button class="btn small" id="dfChange">Choose another folder</button></div></div>`;
+    src.innerHTML = `<div class="dsum"><div class="path">${esc(data.folder.name)}/</div><div class="meta">Folder on this computer · ${data.folder.mdocs.length} mdoc · ${data.folder.mrc} MRC</div>${from}</div>`;
   } else {
-    src.innerHTML = `<div class="dsum"><div class="meta">Use the Open buttons above and select each .mdoc together with its .mrc (Ctrl- or Cmd-click both). Or choose the session folder once to list all its mdoc files here.</div><div><button class="btn small primary" id="dfChoose">Choose data folder</button></div></div>`;
+    src.innerHTML = `<div class="dsum"><div class="meta">Files picked from this computer. Choose the data folder once so the images (.mrc) are found, or select each .mdoc together with its .mrc.</div></div>`;
   }
-  const b = $("#dfChange") || $("#dfChoose"); if(b) b.addEventListener("click", chooseFolder);
-  if(data.server){
-    $("#srvGo").addEventListener("click", () => srvGo($("#srvPath").value.trim()));
-    $("#srvPath").addEventListener("keydown", e => { if(e.key === "Enter") srvGo(e.target.value.trim()); });
-    $("#srvUp").addEventListener("click", () => srvBrowse(data.srvParent ?? ""));
-    $("#srvRec").addEventListener("change", e => { data.srvRecursive = e.target.checked; srvBrowse(data.srvPath); });
-  }
-  if(!(data.folder || data.server)){ br.innerHTML = ""; return; }
-  br.innerHTML = `<div class="dtools"><input id="dlFilter" type="search" placeholder="Filter mdoc files" value="${esc(data.filter)}" aria-label="Filter mdoc files">
-    <select id="dlType" aria-label="Open as">${[["auto","Auto-detect"],["atlas","Atlas"],["square","Square map"],["exposure","Exposures"],["tilt","Tilt series"]].map(([v,l]) => `<option value="${v}" ${data.openType===v?"selected":""}>${l}</option>`).join("")}</select></div>
-    <div class="lwarn" id="dlErr" role="status">${esc(data.err || "")}</div>
-    <div class="dlist" id="dlList"></div>`;
-  $("#dlFilter").addEventListener("input", e => { data.filter = e.target.value; renderDataList(); });
-  $("#dlType").addEventListener("change", e => { data.openType = e.target.value; });
-  renderDataList();
+  const b = $("#openFolder"); b.hidden = !!data.server; b.textContent = data.folder ? "Change data folder" : "Choose data folder";
+  if(data.err) src.insertAdjacentHTML("beforeend", `<div class="lwarn" role="status">${esc(data.err)}</div>`);
 }
-function dataEntries(){
-  if(data.server){
-    const e = data.srvEntries || {dirs: [], files: []};
-    return {dirs: e.dirs, files: e.files.map(f => ({path: f.path, name: f.name, sub: f.rel || "", mrc: f.mrc, kind: "server"}))};
-  }
-  return {dirs: [], files: data.folder.mdocs.map(p => { const parts = p.split("/"); return {path: p, name: parts.pop(), sub: parts.slice(1).join("/"), kind: "folder"}; })};
-}
-function dataError(t){ data.err = t || ""; const el = $("#dlErr"); if(el) el.textContent = data.err; if(t) setMsg(t); }
-function renderDataList(){
-  const box = $("#dlList"); if(!box) return;
-  const f = data.filter.toLowerCase();
-  const {dirs, files} = dataEntries();
-  const shown = files.filter(x => !f || x.path.toLowerCase().includes(f));
-  const opened = openedPaths();
-  const CAP = 300;
-  let html = dirs.filter(d => !f || d.name.toLowerCase().includes(f)).map(d => `<div class="drow dir"><span class="nm" data-dir="${esc(d.path)}" title="${esc(d.path)}">${esc(d.name)}/</span><span></span></div>`).join("");
-  html += shown.slice(0, CAP).map(x => {
-    const isOpen = opened.has(`${x.kind}:${x.path}`);
-    return `<div class="drow ${isOpen?"opened":""}"><span class="nm" title="${esc(x.path)}">${esc(x.name)}${x.sub ? `<small>${esc(x.sub)}</small>` : ""}</span><button class="btn small" data-path="${esc(x.path)}" data-kind="${x.kind}" data-open-state="${isOpen?1:0}">${isOpen ? "Zoom to" : "Open"}</button></div>`;
-  }).join("");
-  if(shown.length > CAP) html += `<div class="dmore">${shown.length - CAP} more. Type in the filter to narrow the list.</div>`;
-  if(!dirs.length && !shown.length) html = `<div class="dmore">${files.length ? "No mdoc files match the filter." : "No mdoc files here."}</div>`;
-  if(shown.length > 1) html += `<div class="dmore"><button class="btn small" id="dlOpenAll">Open all ${shown.length} listed</button></div>`;
-  box.innerHTML = html;
-  box.querySelectorAll("[data-dir]").forEach(el => el.addEventListener("click", () => srvBrowse(el.dataset.dir)));
-  box.querySelectorAll("[data-path]").forEach(el => el.addEventListener("click", () => {
-    if(el.dataset.openState === "1") zoomToDoc(el.dataset.kind, el.dataset.path);
-    else openPaths([{kind: el.dataset.kind, path: el.dataset.path}]);
-  }));
-  const all = $("#dlOpenAll"); if(all) all.addEventListener("click", () => openPaths(shown.filter(x => !opened.has(`${x.kind}:${x.path}`)).map(x => ({kind: x.kind, path: x.path}))));
-}
+function dataError(t){ data.err = t || ""; renderData(); if(t) setMsg(t); }
+const renderDataList = () => renderData();
 async function readText(kind, path){
   if(kind === "folder") return data.folder.files.get(path).text();
   const r = await fetch(`api/file?path=${encodeURIComponent(path)}`, {cache: "no-store"});
@@ -929,15 +867,6 @@ async function openPaths(list, forcedType, opts){
   render();
   return docs;
 }
-function zoomToDoc(kind, path){
-  const pg = PACE.find(g => g.key === `${kind}:${path}`);
-  if(pg) return zoomPace(pg);
-  const its = state.layers.flatMap(L => L.items.filter(it => it.doc.src.kind === kind && it.doc.src.path === path));
-  if(its.length){ setFocus(null); animateTo(viewFor(its, 0.6)); }
-  else if(!state.layers.some(L => L.docs.some(d => d.src.kind === kind && d.src.path === path))) openPaths([{kind, path}]);
-}
-
-/* local server */
 async function detectServer(){
   if(location.protocol !== "http:" && location.protocol !== "https:") return;
   try {
@@ -946,27 +875,10 @@ async function detectServer(){
     const j = await r.json();
     if(j.app !== "mdoc-stage-map") return;
     data.server = j;
-    $("#openFolder").textContent = "Browse server folder";
     if(state.demo) clearAll();
     renderData();
-    srvBrowse(j.start || "");
   } catch(e){}
 }
-async function srvBrowse(path){
-  try {
-    const r = await fetch(`api/list?path=${encodeURIComponent(path)}&recursive=${data.srvRecursive?1:0}`, {cache: "no-store"});
-    const j = await r.json();
-    if(!r.ok) throw new Error(j.error || r.status);
-    data.srvPath = j.path; data.srvParent = j.parent; data.srvEntries = j;
-    if(j.truncated) setMsg(`Listing stopped at ${j.files.length} mdoc files. Narrow the folder.`);
-    renderData();
-  } catch(e){ dataError(`Server: ${e.message}`); }
-}
-function srvGo(path){
-  if(/\.mdoc$/i.test(path)) openPaths([{kind: "server", path}]);
-  else srvBrowse(path);
-}
-
 /* ---------- server file dialog: when served by mdoc_server.py, Open and Save browse the server, not this computer ---------- */
 const PICK_KEY = "mdocStageMap.pickDirs";
 let pickDirs = {};
@@ -978,7 +890,7 @@ function defaultPickDir(purpose){
   const d = state.layers.flatMap(L => L.docs).find(d => d.src.kind === "server");
   if(d) return parentApi(d.src.path);
   const g = PACE.find(g => g.kind === "server"); if(g) return g.dir.replace(/\/$/, "");
-  return data.srvPath || (data.server && data.server.start) || "";
+  return (data.server && data.server.start) || "";
 }
 async function srvSave(path, obj, overwrite){
   const r = await fetch(`api/save?path=${encodeURIComponent(path)}&overwrite=${overwrite ? 1 : 0}`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(obj, null, 1)});
@@ -1481,16 +1393,16 @@ async function alignMontage(mont, ents){
 }
 
 function imgControls(L){
-  const montage = L.type === "atlas" || L.type === "square";
   const dis = canLoad(L) ? "" : "disabled";
-  let h = `<label class="lcheck full" for="im${L.id}"><input type="checkbox" id="im${L.id}" data-act="img" ${L.loadImages?"checked":""} ${dis}> Load images from .mrc</label>`;
-  if(L.loadImages && montage){
-    h += `<label class="full" for="al${L.id}">Piece alignment<select id="al${L.id}" data-act="align">
-      ${[["auto","Auto: mdoc AlignedPieceCoords, else cross-correlate"],["xcorr","Cross-correlate overlaps"],["mdoc","mdoc AlignedPieceCoords"],["nominal","Nominal PieceCoordinates"],["stage","Stage positions (no alignment)"]].map(([v,l]) => `<option value="${v}" ${L.alignMode===v?"selected":""}>${l}</option>`).join("")}</select></label>`;
-    if(L.type === "square" && L.montages.length > 1) h += `<button class="btn small full" data-act="imgall">Load all ${L.montages.length} montages</button>`;
-  }
+  let h = `<label class="lcheck full" for="im${L.id}"><input type="checkbox" id="im${L.id}" data-act="img" ${L.loadImages?"checked":""} ${dis}> Show images</label>`;
+  if(L.loadImages && L.type === "square" && L.montages.length > 1) h += `<button class="btn small full" data-act="imgall">Load all ${L.montages.length} montages</button>`;
   h += `<div class="limg" id="limg${L.id}">${imgStatusText(L)}</div>`;
   return h;
+}
+function imgMore(L){
+  if(!(L.loadImages && (L.type === "atlas" || L.type === "square"))) return "";
+  return `<label class="full" for="al${L.id}">Piece alignment<select id="al${L.id}" data-act="align">
+      ${[["auto","Auto: mdoc AlignedPieceCoords, else cross-correlate"],["xcorr","Cross-correlate overlaps"],["mdoc","mdoc AlignedPieceCoords"],["nominal","Nominal PieceCoordinates"],["stage","Stage positions (no alignment)"]].map(([v,l]) => `<option value="${v}" ${L.alignMode===v?"selected":""}>${l}</option>`).join("")}</select></label>`;
 }
 function imgStatusText(L){
   if(!canLoad(L)) return L.docs.some(d => d.src.kind !== "demo") ? "To show images, select the .mrc together with the .mdoc (or add it now with the same Open button)." : "";
@@ -1522,12 +1434,13 @@ function updateImgStatus(L){ const el = document.getElementById(`limg${L.id}`); 
 function calLine(L){
   if(L.type !== "exposure" && L.type !== "tilt") return "";
   const key = L.items.length ? magKey(L.items[0].doc, L.items[0].sec) : null;
-  const btns = key ? `<div class="row full" style="display:flex;gap:6px;flex-wrap:wrap;grid-column:1/-1"><button class="btn small" data-act="refine">Refine by correlation</button><button class="btn small" data-act="calib">${USERCAL[key] ? "Recalibrate" : "Calibrate"} image shift (${esc(magLabel(key))})</button>${USERCAL[key] ? `<button class="btn small" data-act="calclear">Forget</button>` : ""}</div>` : "";
   const nref = L.items.filter(it => it.refined).length;
-  const refLine = nref ? `<div class="limg">${nref} of ${L.items.length} positions refined by correlation.</div>` : "";
-  if(L.userCalUsed){ const u = L.userCalUsed; return `<div class="limg">Image shift from your calibration at ${esc(magLabel(key))}: ${u.n} points${u.n > 3 ? `, fit error ${u.rms.toFixed(2)} µm` : ""}, ${u.scale.toFixed(3)} µm per unit, ${u.rot.toFixed(1)}°${u.mirrored ? ", mirrored" : ""} (${esc(u.date)})</div>${refLine}${btns}`; }
-  return refLine + btns;
+  let h = nref ? `<div class="limg">${nref} of ${L.items.length} positions aligned.</div>` : "";
+  if(L.userCalUsed){ const u = L.userCalUsed; h += `<div class="limg">Image shift from a saved calibration at ${esc(magLabel(key))}: ${u.scale.toFixed(3)} µm per unit, ${u.rot.toFixed(1)}°${u.mirrored ? ", mirrored" : ""} (${esc(u.date)})</div>`; }
+  if(key) h += `<div class="row full" style="display:flex;gap:6px;flex-wrap:wrap;grid-column:1/-1"><button class="btn small" data-act="refine">Refine all by correlation…</button>${USERCAL[key] ? `<button class="btn small" data-act="calclear">Forget calibration</button>` : ""}</div>`;
+  return h;
 }
+
 /* ---------- your own image-shift calibration: true = StagePosition + M·IS + c, per mag index ---------- */
 const UCAL_KEY = "mdocStageMap.userISCal";
 let USERCAL = {};
@@ -1567,81 +1480,6 @@ function solveIS(pairs){
   const rms = Math.sqrt(res.reduce((a, r) => a + r*r, 0)/n), det = m[0]*m[3] - m[1]*m[2];
   return {m, c, res, rms, n, scale: Math.sqrt(Math.abs(det)), rot: Math.atan2(m[2], m[0])*180/Math.PI, mirrored: det < 0};
 }
-function startCalib(L){
-  if(!L.items.length) return;
-  if(state.refine) closeRefine();
-  const key = magKey(L.items[0].doc, L.items[0].sec);
-  if(!key) return setMsg("These images have no MagIndex or Magnification, so a calibration cannot be stored for them.");
-  const mag = num(get(L.items[0].doc, L.items[0].sec, "Magnification"));
-  state.calib = {L, key, mag, pairs: [], pending: null, fit: null};
-  state.selected = null; showInspector();
-  renderCalPanel(); render();
-}
-function endCalib(){ state.calib = null; $("#calPanel").hidden = true; render(); }
-function calibClick(p){
-  const c = state.calib;
-  if(!c.pending){
-    const it = hitTest(...p, c.L.type);
-    if(!it || it.L !== c.L){ setMsg("Click one of the exposures in this layer first."); return; }
-    if(magKey(it.doc, it.sec) !== c.key){ setMsg(`That image is at a different magnification (${magLabel(magKey(it.doc, it.sec))}).`); return; }
-    c.pending = {doc: it.doc, sec: it.sec};
-  } else {
-    const st = stagePos(c.pending.doc, c.pending.sec), is = nums(c.pending.sec.kv.ImageShift);
-    const w = toWorld(...p), off = state.settings.offset, o = off.on && c.L.offsetApplied ? [off.x, off.y] : [0, 0];
-    const pair = {doc: c.pending.doc, sec: c.pending.sec, st, IS: is.length >= 2 ? is.slice(0, 2) : [0, 0], target: [w[0] - o[0], w[1] - o[1]],
-      label: baseName(c.pending.doc.name) + (imageSections(c.pending.doc).length > 1 ? `:${c.pending.sec.index}` : "")};
-    const k = c.pairs.findIndex(q => q.doc === pair.doc && q.sec === pair.sec);
-    if(k >= 0) c.pairs[k] = pair; else c.pairs.push(pair);
-    c.pending = null;
-    c.fit = solveIS(c.pairs);
-  }
-  renderCalPanel(); render();
-}
-function renderCalPanel(){
-  const c = state.calib, el = $("#calPanel");
-  if(!c){ el.hidden = true; return; }
-  el.hidden = false;
-  const f = c.fit && !c.fit.error ? c.fit : null;
-  const rows = c.pairs.map((q, i) => `<tr><td>${i + 1}. ${esc(q.label.length > 16 ? "…" + q.label.slice(-15) : q.label)}</td><td>${q.IS[0].toFixed(2)}, ${q.IS[1].toFixed(2)}</td><td>${f ? f.res[i].toFixed(2) : "–"}</td></tr>`).join("");
-  const need = Math.max(0, 3 - c.pairs.length);
-  el.innerHTML = `<h3>Calibrate image shift · ${esc(magLabel(c.key))}${c.mag ? ` (${c.mag}×)` : ""}</h3>
-    <div class="step">${c.pending ? `<b>Now click where this exposure really is</b> on the square map.` : `<b>Click an exposure</b>, then click where it really is on the square map.`} Use points whose image shifts point in different directions (for example, different shots of a multishot pattern).</div>
-    ${c.pairs.length ? `<table><tr><th>Point</th><th>ImageShift</th><th>Error µm</th></tr>${rows}</table>` : ""}
-    <div class="res">${need ? `${need} more point${need === 1 ? "" : "s"} needed.` : c.fit && c.fit.error ? esc(c.fit.error) : `Fit: ${f.scale.toFixed(3)} µm per unit, ${f.rot.toFixed(1)}°${f.mirrored ? ", mirrored" : ""}, offset ${f.c[0].toFixed(2)}, ${f.c[1].toFixed(2)} µm${f.n > 3 ? `, error ${f.rms.toFixed(2)} µm` : " (exact with 3 points; add more to check it)"}`}</div>
-    <div class="row">
-      <button class="btn small primary" id="calApply" ${f ? "" : "disabled"}>Apply and save</button>
-      <button class="btn small" id="calUndo" ${c.pairs.length || c.pending ? "" : "disabled"}>Undo</button>
-      <button class="btn small" id="calCancel">Close</button>
-    </div>`;
-  $("#calApply").addEventListener("click", applyCalib);
-  $("#calUndo").addEventListener("click", () => { if(c.pending) c.pending = null; else c.pairs.pop(); c.fit = solveIS(c.pairs); renderCalPanel(); render(); });
-  $("#calCancel").addEventListener("click", endCalib);
-}
-function applyCalib(){
-  const c = state.calib, f = c && c.fit;
-  if(!f || f.error) return;
-  USERCAL[c.key] = {m: f.m, c: f.c, n: f.n, rms: f.rms, scale: f.scale, rot: f.rot, mirrored: f.mirrored, mag: c.mag || null, date: new Date().toLocaleString(),
-    points: c.pairs.map(q => ({st: q.st, IS: q.IS, target: q.target}))};
-  saveUserCal();
-  rebuildKeepFocus();
-  setMsg(`Saved your image-shift calibration for ${magLabel(c.key)} from ${f.n} points.`);
-  renderCalPanel();
-}
-function drawCalib(){
-  const c = state.calib, off = state.settings.offset, o = off.on && c.L.offsetApplied ? [off.x, off.y] : [0, 0];
-  const find = (doc, sec) => c.L.items.find(it => it.doc === doc && it.sec === sec);
-  ctx.lineWidth = 1.5; ctx.font = `600 11px ${getFont("--font-body")}`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
-  c.pairs.forEach((q, i) => {
-    const it = find(q.doc, q.sec), t = toScreen(q.target[0] + o[0], q.target[1] + o[1]);
-    ctx.strokeStyle = theme.accent; ctx.fillStyle = theme.accent;
-    if(it){ const a = toScreen(it.cx, it.cy); ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(t[0], t[1]); ctx.stroke(); ctx.setLineDash([]); }
-    ctx.beginPath(); ctx.arc(t[0], t[1], 6, 0, Math.PI*2); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(t[0]-9, t[1]); ctx.lineTo(t[0]+9, t[1]); ctx.moveTo(t[0], t[1]-9); ctx.lineTo(t[0], t[1]+9); ctx.stroke();
-    ctx.fillText(String(i + 1), t[0] + 10, t[1] - 9);
-  });
-  if(c.pending){ const it = find(c.pending.doc, c.pending.sec); if(it){ const a = toScreen(it.cx, it.cy); ctx.strokeStyle = theme.accent; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(a[0], a[1], Math.max(8, it.w*state.view.s*0.8), 0, Math.PI*2); ctx.stroke(); } }
-}
-
 /* ---------- correlation refinement: View images onto the square map, acquisition images into their View ---------- */
 const REF_KEY = "mdocStageMap.refined";
 let REFINED = {};
@@ -1716,7 +1554,6 @@ function imageGroups(){
   return [...g.values()].sort((a, b) => (a.mag || 0) - (b.mag || 0));
 }
 function openRefine(L){
-  endCalib();
   const groups = imageGroups();
   const mine = groups.filter(g => g.L === L).sort((a, b) => (b.mag || 0) - (a.mag || 0));
   const acq = mine[0];
@@ -1946,7 +1783,6 @@ async function alignOffset(mont0){
   const atlasL = state.layers.find(L => L.type === "atlas" && L.visible);
   if(!atlasL) return say("Open the atlas first: the offset is measured against it.");
   if(!canLoad(atlasL) || !canLoad(focus.L)) return say("Align needs the images: select the .mrc files with the atlas and square map mdocs.");
-  $("#offAlign").disabled = true;
   try {
     say("Loading images…");
     for(const L of [atlasL, focus.L]) if(!L.loadImages){ L.loadImages = true; }
@@ -1978,7 +1814,6 @@ async function alignOffset(mont0){
     setOffset(nx, ny, `Offset ${nx.toFixed(2)}, ${ny.toFixed(2)} µm from aligning ${mont.name} to the atlas (change ${dx.toFixed(2)}, ${dy.toFixed(2)} µm, score ${r.score.toFixed(2)}, ${new Date().toLocaleString()}).${conf}`);
     say(state.settings.offset.note);
   } catch(e){ say(`Align failed: ${e.message}`); }
-  finally { $("#offAlign").disabled = false; }
 }
 
 /* ---------- matching one image against the square map under it (used by Snap and the PACEtomo anchor) ---------- */
@@ -2057,14 +1892,7 @@ const resTxt = r => r >= 0.1 ? `${r.toFixed(2)} µm/px` : `${Math.round(r*1000)}
 
 /* ---------- Method 1: place exposures and tilt series by hand (saved positions, not a calibration) ---------- */
 const isImgItem = it => !!it && (it.L.type === "exposure" || it.L.type === "tilt");
-function moveMsg(t){ $("#moveStatus").textContent = t; setMsg(t); }
-function setMove(on){
-  state.move = on;
-  const b = $("#moveBtn"); b.textContent = `Move images: ${on ? "on" : "off"}`; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false");
-  cv.classList.toggle("moving", on);
-  if(on && state.calib) endCalib();
-  moveMsg(on ? "Drag an exposure, a tilt series or a PACEtomo View onto its place. Click to select; [ ] rotate; Snap fine-tunes. Press M to stop." : "Move is off: dragging pans the map again.");
-}
+const moveMsg = t => setMsg(t);
 function groupMembers(it){
   if(!$("#moveGroup").checked) return [it];
   const st = stagePos(it.doc, it.sec); if(!st) return [it];
@@ -2102,18 +1930,17 @@ function rotateSelected(d){
 async function snapSelected(rotOn){
   const it = state.selected, rotate = useRot(rotOn);
   if(!isImgItem(it)){ if(state.paceSel) return anchorPace(state.paceSel, rotate); return moveMsg("Select an exposure, a tilt series or a PACEtomo View first."); }
-  const mem = groupMembers(it), btn = $("#snapBtn");
-  btn.disabled = true; moveMsg("Matching the selected image to the square map…");
+  const mem = groupMembers(it);
+  moveMsg("Matching the selected image to the square map…");
   try {
     const margin = Math.min(3, Math.max(0.3, 0.6*Math.max(it.w, it.h)));
     const r = await matchToSquare({doc: it.doc, sec: it.sec, cx: it.cx, cy: it.cy, w: it.w, h: it.h}, {margin, rot: it.refined ? it.rot : null, rotate});
-    if(r.score < 0.15){ moveMsg(`Match score ${r.score.toFixed(2)} is too low, so nothing was moved. Drag it closer and snap again.`); return; }
+    if(r.score < 0.15){ moveMsg(`Match score ${r.score.toFixed(2)} is too low, so nothing was moved. Drag it closer (right-click, Align by dragging) and try again.`); return; }
     const dr = r.rot - it.rot;
     for(const m of mem){ m.cx += r.dx; m.cy += r.dy; m.rot += dr; m.flip = r.flip; }
     commitManual(mem, {score: r.score});
-    moveMsg(`Snapped ${mem.length > 1 ? `${mem.length} images` : "the image"} by ${Math.hypot(r.dx, r.dy).toFixed(2)} µm (${howTxt(rotate)}), rotation ${r.rot.toFixed(1)}°, score ${r.score.toFixed(2)}, matched at ${resTxt(r.res)}.${r.score < 0.3 ? " Low score: check by eye." : ""}`);
-  } catch(e){ moveMsg(`Snap failed: ${e.message}`); }
-  finally { btn.disabled = false; }
+    moveMsg(`Aligned ${mem.length > 1 ? `${mem.length} images` : "the image"} by ${Math.hypot(r.dx, r.dy).toFixed(2)} µm (${howTxt(rotate)}), rotation ${r.rot.toFixed(1)}°, score ${r.score.toFixed(2)}, matched at ${resTxt(r.res)}.${r.score < 0.3 ? " Low score: check by eye." : ""}`);
+  } catch(e){ moveMsg(`Align failed: ${e.message}`); }
 }
 function resetSelected(){
   const it = state.selected;
@@ -2142,8 +1969,6 @@ function setGhostDiff(on){ ghostDiff = on; try { localStorage.setItem("mdocStage
 let spaceDown = false;
 function startAlign(spec){
   if(state.align) finishAlign(true);
-  if(state.calib) endCalib();
-  if(state.move) setMove(false);
   hideCtxMenu();
   const a = {kind: spec.kind, applied: [0, 0]};
   if(spec.kind === "offset"){
@@ -2209,7 +2034,7 @@ function finishAlign(keep){
   } else if(a.kind === "pace"){
     const g = a.g;
     if(keep){
-      if(moved){ if(g.rot == null) g.rot = paceRot(g); g.status = `Aligned by hand: offset ${g.delta[0].toFixed(2)}, ${g.delta[1].toFixed(2)} µm.${g.anchored ? "" : " Anchor fine-tunes it by correlation."}`; }
+      if(moved){ if(g.rot == null) g.rot = paceRot(g); g.status = `Aligned by hand: offset ${g.delta[0].toFixed(2)}, ${g.delta[1].toFixed(2)} µm.`; }
       savePace(g); setMsg(moved ? `${a.name}: View group moved by ${dtxt}.` : "Nothing moved.");
     } else { g.delta = a.start; g.rot = a.rot0; g.rotSet = a.rotSet0; savePace(g); setMsg("Alignment cancelled."); }
     rebuildKeepFocus(); renderPace();
@@ -2262,23 +2087,28 @@ function openCtxMenu(p){
     const it = hitTest(...p), pg = paceHit(...p), sq = hitTest(...p, "square");
     const hasAtlas = state.layers.some(L => L.type === "atlas" && L.visible), noAtlas = "Open the atlas first";
     const off = state.settings.offset;
-    if(pg) groups.push({hd: `PACEtomo · ${pg.root || pg.name}`, items: [
-      ["Align View group to square map…", () => startAlign({kind: "pace", g: pg})],
+    const zoomItem = x => { state.selected = x; state.paceSel = null; showInspector(); setFocus(null); animateTo(viewFor([x], 0.5)); };
+    const pick = x => { state.selected = x; state.paceSel = null; };
+    if(pg) groups.push({hd: `View · ${pg.root || pg.name}`, items: [
+      ["Zoom to this View", () => { state.paceSel = pg; state.selected = null; showInspector(); setFocus(null); animateTo(viewFor([paceViewBox(pg)], 0.5)); renderPace(); }],
+      ["Align by dragging…", () => startAlign({kind: "pace", g: pg})],
       ["Align by correlation (shift only)", () => anchorPace(pg, false), !pg.view || pg.busy],
       [`Align by correlation (shift + rotation ±${ROT_SPAN}°)`, () => anchorPace(pg, true), !pg.view || pg.busy],
       ["Refine targets inside the View", () => refinePace(pg), !pg.view || pg.busy],
       ["Find new tilt series", () => openPaceTS(pg)],
-      ["Reset group alignment", () => resetPace(pg), pg.busy]]});
-    if(isImgItem(it)) groups.push({hd: `${TYPES[it.L.type].label} · ${it.label}`, items: [
-      ["Move onto square map…", () => startAlign({kind: "item", it})],
-      ["Align by correlation (shift only)", () => { state.selected = it; state.paceSel = null; snapSelected(false); }],
-      [`Align by correlation (shift + rotation ±${ROT_SPAN}°)`, () => { state.selected = it; state.paceSel = null; snapSelected(true); }],
-      ["Reset position", () => { state.selected = it; state.paceSel = null; resetSelected(); }, !REFINED[refKey(it)]]]});
+      ["Reset alignment", () => resetPace(pg), pg.busy]]});
+    if(isImgItem(it)) groups.push({hd: `${it.L.type === "tilt" ? "Tilt series" : "Exposure"} · ${it.label}`, items: [
+      ["Zoom to this image", () => zoomItem(it)],
+      ["Align by dragging…", () => startAlign({kind: "item", it})],
+      ["Align by correlation (shift only)", () => { pick(it); snapSelected(false); }],
+      [`Align by correlation (shift + rotation ±${ROT_SPAN}°)`, () => { pick(it); snapSelected(true); }],
+      ["Refine the whole layer by correlation…", () => openRefine(it.L)],
+      ["Reset position", () => { pick(it); resetSelected(); }, !REFINED[refKey(it)]]]});
     if(sq && sq.montage) groups.push({hd: `Square map · ${sq.montage.name}`, items: [
-      ["Align square to atlas…", () => startAlign({kind: "offset", m: sq.montage}), !hasAtlas, noAtlas],
-      ["Align square to atlas (correlation)", () => alignOffset(sq.montage), !hasAtlas, noAtlas],
-      ["Reset atlas offset", () => setOffset(0, 0, "Offset reset to 0."), !(off.x || off.y)],
-      ["Zoom to this square", () => { state.selected = sq; showInspector(); focusMontage(sq.montage); }]]});
+      ["Zoom to this square", () => { state.selected = sq; state.paceSel = null; showInspector(); focusMontage(sq.montage); }],
+      ["Align to atlas by dragging…", () => startAlign({kind: "offset", m: sq.montage}), !hasAtlas, noAtlas],
+      ["Align to atlas by correlation", () => alignOffset(sq.montage), !hasAtlas, noAtlas],
+      ["Reset atlas offset", () => setOffset(0, 0, "Offset reset to 0."), !(off.x || off.y)]]});
     if(!groups.length) groups.push({hd: "", items: [["Full view", fullView]]});
   }
   const menu = $("#ctxMenu"), acts = [];
@@ -2305,6 +2135,10 @@ const PACE_KEY = "mdocStageMap.pace", PACE_COLOR = "#c2185b";
 let PACESTORE = {};
 try { PACESTORE = JSON.parse(localStorage.getItem(PACE_KEY) || "{}") || {}; } catch(e){ PACESTORE = {}; }
 const PACE = [];
+// the size correction found for a View magnification is reused for the next group at that magnification
+const VSCALE_KEY = "mdocStageMap.viewScale";
+let VSCALE = {};
+try { VSCALE = JSON.parse(localStorage.getItem(VSCALE_KEY) || "{}") || {}; } catch(e){ VSCALE = {}; }
 let paceSeq = 0;
 function savePaceStore(){ try { localStorage.setItem(PACE_KEY, JSON.stringify(PACESTORE)); } catch(e){} }
 function savePace(g){
@@ -2371,8 +2205,8 @@ async function openPace(kind, path, text){
   const sv = PACESTORE[key] || {};
   const g = {id: ++paceSeq, key, kind, path, dir: dirOf(path), name: file.replace(/\.txt$/i, ""), root, settings: t.settings, targets,
     viewfile: targets[0].viewfile || `${root}_tgt_001_view.mrc`, view: null, previews: {}, visible: true, showImg: true,
-    delta: sv.delta || [0, 0], scale: sv.scale > 0 ? sv.scale : 1, rot: sv.rot ?? null, rotSet: !!sv.rotSet, flip: sv.flip || 1, anchored: !!sv.anchored, score: sv.score ?? null, prev: sv.prev || {},
-    status: sv.anchored ? `Anchor restored (${sv.date || "earlier"}).` : "Not anchored yet: positions are SerialEM's nominal stage positions.", err: "", busy: false};
+    delta: sv.delta || [0, 0], scale: sv.scale > 0 ? sv.scale : 1, scaleKnown: sv.scale > 0, rot: sv.rot ?? null, rotSet: !!sv.rotSet, flip: sv.flip || 1, anchored: !!sv.anchored, score: sv.score ?? null, prev: sv.prev || {},
+    status: sv.anchored ? `Alignment restored (${sv.date || "earlier"}).` : "Not aligned yet: positions are SerialEM's nominal stage positions.", err: "", busy: false};
   const missing = targets.filter(x => !x.stage).length;
   if(missing) g.err = `${missing} target${missing === 1 ? "" : "s"} without stageX/stageY are not shown.`;
   PACE.push(g);
@@ -2420,6 +2254,8 @@ async function loadPacePreviews(g){
 async function loadPaceView(g){
   try {
     g.view = await imageDoc(g.kind, g.dir, g.viewfile);
+    const learned = VSCALE[magKey(g.view.doc, g.view.sec)];
+    if(!g.scaleKnown && learned > 0 && learned !== 1){ g.scale = learned; g.status += ` View size ×${learned} reused from an earlier group at this magnification.`; }
     g.view.canvas = (await imageAt(g.view.doc, g.view.sec, Math.max(g.view.px, Math.max(g.view.w, g.view.h)/1200))).canvas;
   } catch(e){ g.view = g.view && g.view.canvas ? g.view : null; g.err = `View image ${g.viewfile}: ${e.message}`; }
   renderPace(); render();
@@ -2471,14 +2307,15 @@ async function anchorPace(g, rotOn){
     // the View's size comes from its pixel size; if that disagrees with the square map, a better-fitting size is used
     const scales = again ? [0.96, 0.98, 1, 1.02, 1.04] : [0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1, 1.15, 1.2, 1.25];
     const r = await matchToSquare({doc: g.view.doc, sec: g.view.sec, cx: b.cx, cy: b.cy, w: b.w, h: b.h}, {margin, rot: b.rot, rotate, scales});
-    if(r.score < 0.15){ g.status = `Match score ${r.score.toFixed(2)} is too low, so nothing was moved. Drag the View near its place (right-click it) and anchor again.`; }
+    if(r.score < 0.15){ g.status = `Match score ${r.score.toFixed(2)} is too low, so nothing was moved. Drag the View near its place (right-click it) and try again.`; }
     else {
       g.delta = [g.delta[0] + r.dx, g.delta[1] + r.dy]; g.rot = r.rot; g.rotSet = true; g.flip = r.flip; g.anchored = true; g.score = r.score;
-      g.scale = +(g.scale*r.k).toFixed(4);
-      g.status = `Anchored on ${r.square} (${howTxt(rotate)}): moved ${Math.hypot(r.dx, r.dy).toFixed(2)} µm, View rotation ${r.rot.toFixed(1)}°${r.k !== 1 ? `, View resized ×${r.k.toFixed(3)} to fit the square map` : ""}, score ${r.score.toFixed(2)}, matched at ${resTxt(r.res)}.${r.score < 0.3 ? " Low score: check by eye." : ""}`;
+      g.scale = +(g.scale*r.k).toFixed(4); g.scaleKnown = true;
+      const vk = magKey(g.view.doc, g.view.sec); if(vk){ VSCALE[vk] = g.scale; try { localStorage.setItem(VSCALE_KEY, JSON.stringify(VSCALE)); } catch(e){} }
+      g.status = `Aligned on ${r.square} (${howTxt(rotate)}): moved ${Math.hypot(r.dx, r.dy).toFixed(2)} µm, View rotation ${r.rot.toFixed(1)}°${r.k !== 1 ? `, View resized ×${r.k.toFixed(3)} to fit the square map` : ""}, score ${r.score.toFixed(2)}, matched at ${resTxt(r.res)}.${r.score < 0.3 ? " Low score: check by eye." : ""}`;
       savePace(g);
     }
-  } catch(e){ g.status = `Anchor failed: ${e.message}`; }
+  } catch(e){ g.status = `Align failed: ${e.message}`; }
   g.busy = false; rebuildKeepFocus(); renderPace();
 }
 // match each tgt_00N.mrc Preview inside the anchored View image
@@ -2521,7 +2358,7 @@ async function refinePace(g, rotOn){
 }
 function resetPace(g){
   delete PACESTORE[g.key]; savePaceStore();
-  Object.assign(g, {delta: [0, 0], scale: 1, rot: null, rotSet: false, flip: 1, anchored: false, score: null, prev: {}, status: "Reset to SerialEM's nominal stage positions."});
+  Object.assign(g, {delta: [0, 0], scale: 1, scaleKnown: true, rot: null, rotSet: false, flip: 1, anchored: false, score: null, prev: {}, status: "Reset to SerialEM's nominal stage positions."});
   rebuildKeepFocus(); renderPace();
 }
 function openPaceTS(g){
@@ -2530,64 +2367,59 @@ function openPaceTS(g){
   if(g.kind === "file"){ g.status = `Select the tilt series mdoc files (${names.slice(0, 2).join(", ")}…) together with the _tgts.txt, or run the viewer from mdoc_server.py.`; renderPace(); return; }
   openPaceGroup(g, true).then(() => loadPacePreviews(g));
 }
-function renderPace(){
-  const box = $("#paceList"); if(!box) return;
-  if(!PACE.length){ box.innerHTML = `<div class="empty">No PACEtomo target files open.</div>`; return; }
-  box.innerHTML = PACE.map(g => {
-    const n = g.targets.length, placed = state.layers.reduce((a, L) => a + L.items.filter(it => it.pace && it.pace.g === g).length, 0);
-    const nprev = Object.values(g.prev).filter(p => p.ok).length;
-    const vsz = g.view && imageSize(g.view.doc, g.view.sec);
-    const view = g.view ? `${g.viewfile} · ${vsz ? `${vsz[0]}×${vsz[1]} px · ` : ""}${+(g.view.px*1e4).toPrecision(4)} Å/px (${g.view.doc.synthetic ? "MRC header" : "mdoc"}) → ${fmtLen(g.view.w*g.scale)} × ${fmtLen(g.view.h*g.scale)}${g.scale !== 1 ? ` (resized ×${g.scale})` : ""}` : (g.err ? "" : `${g.viewfile} · loading…`);
-    const sel = state.paceSel === g ? ` style="border-color:${PACE_COLOR}"` : "";
-    return `<div class="layer" data-pace="${g.id}"${sel}>
-      <div class="layer-head">
-        <input type="checkbox" data-pact="vis" ${g.visible ? "checked" : ""} aria-label="Show ${esc(g.name)}">
-        <span class="sw" style="width:12px;height:12px;border-radius:3px;background:${PACE_COLOR}"></span>
-        <button class="lname" data-pact="zoom" title="Zoom to ${esc(g.name)}">${esc(g.name)}</button>
-        <span class="count">${n} target${n === 1 ? "" : "s"}</span>
-        <button class="x" data-pact="remove" aria-label="Close ${esc(g.name)}">×</button>
-      </div>
-      <div class="layer-ctl">
+const renderPace = () => renderLayers();
+function paceCard(g){
+  const n = g.targets.length, placed = state.layers.reduce((a, L) => a + L.items.filter(it => it.pace && it.pace.g === g).length, 0);
+  const nprev = Object.values(g.prev).filter(p => p.ok).length;
+  const vsz = g.view && imageSize(g.view.doc, g.view.sec);
+  const view = g.view ? `${g.viewfile} · ${vsz ? `${vsz[0]}×${vsz[1]} px · ` : ""}${+(g.view.px*1e4).toPrecision(4)} Å/px (${g.view.doc.synthetic ? "MRC header" : "mdoc"}) → ${fmtLen(g.view.w*g.scale)} × ${fmtLen(g.view.h*g.scale)}${g.scale !== 1 ? ` (resized ×${g.scale})` : ""}` : (g.err ? "" : `${g.viewfile} · loading…`);
+  const sel = state.paceSel === g ? ` style="border-color:${PACE_COLOR}"` : "";
+  return `<div class="layer" data-pace="${g.id}"${sel}>
+    <div class="layer-head">
+      <input type="checkbox" data-pact="vis" ${g.visible ? "checked" : ""} aria-label="Show ${esc(g.name)}">
+      <span class="sw" style="width:12px;height:12px;border-radius:3px;background:${PACE_COLOR}"></span>
+      <button class="lname" data-pact="zoom" title="Zoom to ${esc(g.name)}">${esc(g.name)}</button>
+      <span class="count">${n} target${n === 1 ? "" : "s"}</span>
+      <button class="x" data-pact="remove" aria-label="Close ${esc(g.name)}">×</button>
+    </div>
+    <div class="layer-ctl">
+      <label class="lcheck full"><input type="checkbox" data-pact="img" ${g.showImg ? "checked" : ""}> Show the View and Preview images</label>
+      <div class="limg">${esc(g.status)}${nprev ? ` ${nprev} Preview${nprev === 1 ? "" : "s"} matched.` : ""}</div>
+      ${g.err ? `<div class="lwarn">${esc(g.err)}</div>` : ""}
+      <details class="more" data-more="p${g.id}" ${g.more ? "open" : ""}><summary>More</summary><div class="layer-ctl">
         ${view ? `<div class="lsize">${esc(view)}</div>` : ""}
-        <div class="limg">${esc(g.status)}${g.anchored ? ` Offset ${g.delta[0].toFixed(2)}, ${g.delta[1].toFixed(2)} µm.` : ""}${nprev ? ` ${nprev} Preview${nprev === 1 ? "" : "s"} matched.` : ""}</div>
-        ${g.err ? `<div class="lwarn">${esc(g.err)}</div>` : ""}
-        <label class="lcheck full"><input type="checkbox" data-pact="img" ${g.showImg ? "checked" : ""}> Show the View and Preview images</label>
-        <label class="lcheck full" title="1 = the size from the View's pixel size. Anchor changes it when another size fits the square map clearly better.">View size ×<input type="number" data-pact="scale" step="0.01" min="0.2" max="5" value="${g.scale}" style="width:72px;margin-left:6px"></label>
-        <div class="prow">
-          <button class="btn small" data-pact="anchor" ${g.busy || !g.view ? "disabled" : ""}>${g.anchored ? "Re-anchor" : "Anchor on square map"}</button>
-          <button class="btn small" data-pact="refine" ${g.busy || !g.view ? "disabled" : ""}>Refine targets in View</button>
-          <button class="btn small" data-pact="ts" title="Looks again for tilt series acquired since the file was opened">Find new tilt series</button>
-          <button class="btn small" data-pact="align" title="Or right-click the View on the map">Align by dragging</button>
-          <button class="btn small" data-pact="reset" ${g.busy ? "disabled" : ""}>Reset</button>
-        </div>
-        <div class="limg">${g.tsNote ? esc(g.tsNote) + " " : ""}${placed} placed at their targets.</div>
-      </div></div>`;
-  }).join("");
+        <label class="lcheck full" title="1 = the size from the View's pixel size. Aligning by correlation changes it when another size fits the square map clearly better.">View size ×<input type="number" data-pact="scale" step="0.005" min="0.2" max="5" value="${g.scale}" style="width:76px;margin-left:6px"></label>
+        <div class="limg">${g.tsNote ? esc(g.tsNote) + " " : ""}${placed} placed at their targets.${g.anchored ? ` Offset ${g.delta[0].toFixed(2)}, ${g.delta[1].toFixed(2)} µm.` : ""}</div>
+        <div class="prow"><button class="btn small" data-pact="ts" title="Looks again for tilt series acquired since the file was opened">Find new tilt series</button></div>
+      </div></details>
+    </div></div>`;
 }
-$("#paceList").addEventListener("click", e => {
+$("#layers").addEventListener("click", e => {
   const el = e.target.closest("[data-pact]"), row = e.target.closest("[data-pace]");
   const g = row && PACE.find(x => x.id === Number(row.dataset.pace)); if(!el || !g) return;
   const a = el.dataset.pact;
-  if(a === "zoom"){ state.paceSel = g; zoomPace(g); renderPace(); }
-  else if(a === "anchor") anchorPace(g);
-  else if(a === "refine") refinePace(g);
+  if(a === "zoom"){ state.paceSel = g; state.selected = null; zoomPace(g); showInspector(); renderPace(); }
   else if(a === "ts") openPaceTS(g);
-  else if(a === "align") startAlign({kind: "pace", g});
-  else if(a === "reset") resetPace(g);
   else if(a === "remove"){
     PACE.splice(PACE.indexOf(g), 1); if(state.paceSel === g) state.paceSel = null;
     if(state.align && state.align.g === g) finishAlign(false);
     state.layers = state.layers.filter(L => L.paceKey !== g.key);
-    if(state.selected && !state.layers.includes(state.selected.L)){ state.selected = null; showInspector(); }
-    rebuildKeepFocus(); renderPace(); renderDataList();
+    if(state.selected && !state.layers.includes(state.selected.L)) state.selected = null;
+    showInspector(); rebuildKeepFocus(); renderPace();
   }
 });
-$("#paceList").addEventListener("change", e => {
-  const el = e.target, row = el.closest("[data-pace]"), g = row && PACE.find(x => x.id === Number(row.dataset.pace)); if(!g) return;
+$("#layers").addEventListener("change", e => {
+  const el = e.target, row = el.closest("[data-pace]"), g = row && PACE.find(x => x.id === Number(row.dataset.pace)); if(!g || !el.dataset.pact) return;
   if(el.dataset.pact === "vis"){ g.visible = el.checked; rebuildKeepFocus(); renderPace(); }
   else if(el.dataset.pact === "img"){ g.showImg = el.checked; render(); }
-  else if(el.dataset.pact === "scale"){ const v = Number(el.value); if(v >= 0.2 && v <= 5){ g.scale = v; savePace(g); renderPace(); render(); } }
+  else if(el.dataset.pact === "scale"){ const v = Number(el.value); if(v >= 0.2 && v <= 5){ g.scale = v; savePace(g); renderPace(); showInspector(); render(); } }
 });
+// remember which "More" sections are open across re-renders (toggle does not bubble, so listen in the capture phase)
+$("#layers").addEventListener("toggle", e => {
+  const id = e.target.dataset && e.target.dataset.more; if(!id) return;
+  if(id[0] === "p"){ const g = PACE.find(x => x.id === Number(id.slice(1))); if(g) g.more = e.target.open; }
+  else { const L = state.layers.find(x => x.id === Number(id.slice(1))); if(L) L.more = e.target.open; }
+}, true);
 function drawPace(){
   const s = state.view.s;
   for(const g of PACE){
@@ -2634,7 +2466,7 @@ function sessionState(withStores){
   if(withStores) st.stores = {refined: REFINED, userCal: USERCAL, pace: PACESTORE};
   return st;
 }
-function stateMsg(t){ $("#stateStatus").textContent = t; setMsg(t); }
+function stateMsg(t){ const el = $("#stateStatus"); el.textContent = t; el.hidden = !t; setMsg(t); }
 function stateFileName(){ const d = new Date(), pad = n => String(n).padStart(2, "0"); return `stage-map-state_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}.json`; }
 function stateSummary(st){ return `${st.layers.length} layer${st.layers.length === 1 ? "" : "s"} and ${st.pace.length} PACEtomo file${st.pace.length === 1 ? "" : "s"}`; }
 async function saveState(){
@@ -2642,7 +2474,7 @@ async function saveState(){
   if(!data.server.write){ saveStateFile(); stateMsg($("#stateStatus").textContent + " (The server is read-only, so the file was downloaded to this computer.)"); return; }
   let st = null;
   const r = await serverPick({purpose: "state", mode: "save", ext: "json", name: stateFileName(), title: "Save state on the server",
-    sub: "Saves the open files, view, offsets, placed positions and PACEtomo anchors.", local: "Download to this computer instead",
+    sub: "Saves the open files, view, offsets, placed positions and PACEtomo alignments.", local: "Download to this computer instead",
     save: (path, overwrite) => srvSave(path, st = sessionState(true), overwrite)});
   if(!r) return;
   if(r.local) return saveStateFile();
@@ -2738,38 +2570,43 @@ function showRestore(){
 }
 
 /* ---------- layer list ---------- */
-function renderLayers(){
-  const box = $("#layers");
-  if(!state.layers.length){ box.innerHTML = `<div class="empty">No mdoc files loaded. Use the buttons above or drop files on the map.</div>`; return; }
-  const sorted = [...state.layers].sort((a,b) => TYPES[a.type].rank - TYPES[b.type].rank || a.id - b.id);
-  box.innerHTML = sorted.map(L => {
-    const isMont = L.type === "atlas" || L.type === "square";
-    const nCount = L.type === "square" ? L.montages.length : L.items.length;
-    const unit = L.type === "square" ? (nCount === 1 ? "montage" : "montages") : L.type === "atlas" ? "pieces" : L.type === "tilt" ? "series" : "images";
-    const sizeLine = sizeSummary(L);
-    const rotPh = `auto (${(L.autoRot||0).toFixed(1)}°)`;
-    const warn = [...L.warn].map(w => `<div class="lwarn">${esc(w)}</div>`).join("");
-    const mdocBtn = !isNaN(L.mdocRot) ? `<button class="btn small full" data-act="mdocrot">Use mdoc RotationAngle (${L.mdocRot.toFixed(1)}°)</button>` : "";
-    return `<div class="layer" data-id="${L.id}">
-      <div class="layer-head">
-        <input type="checkbox" data-act="vis" ${L.visible?"checked":""} aria-label="Show ${esc(L.name)}">
-        <input type="color" data-act="color" value="${L.color}" aria-label="Color for ${esc(L.name)}">
-        <button class="lname" data-act="zoom" title="Zoom to ${esc(L.name)}">${esc(L.name)}</button>
-        <span class="count">${nCount} ${unit}</span>
-        <button class="x" data-act="remove" aria-label="Remove ${esc(L.name)}">×</button>
-      </div>
-      <div class="layer-ctl">
+function layerCard(L){
+  const nCount = L.type === "square" ? L.montages.length : L.items.length;
+  const unit = L.type === "square" ? (nCount === 1 ? "montage" : "montages") : L.type === "atlas" ? "pieces" : L.type === "tilt" ? "series" : "images";
+  const rotPh = `auto (${(L.autoRot||0).toFixed(1)}°)`;
+  const warn = [...L.warn].map(w => `<div class="lwarn">${esc(w)}</div>`).join("");
+  const mdocBtn = !isNaN(L.mdocRot) ? `<button class="btn small full" data-act="mdocrot">Use mdoc RotationAngle (${L.mdocRot.toFixed(1)}°)</button>` : "";
+  return `<div class="layer" data-id="${L.id}">
+    <div class="layer-head">
+      <input type="checkbox" data-act="vis" ${L.visible?"checked":""} aria-label="Show ${esc(L.name)}">
+      <input type="color" data-act="color" value="${L.color}" aria-label="Color for ${esc(L.name)}">
+      <button class="lname" data-act="zoom" title="Zoom to ${esc(L.name)}">${esc(L.name)}</button>
+      <span class="count">${nCount} ${unit}</span>
+      <button class="x" data-act="remove" aria-label="Remove ${esc(L.name)}">×</button>
+    </div>
+    <div class="layer-ctl">
+      ${imgControls(L)}
+      ${warn}
+      <details class="more" data-more="l${L.id}" ${L.more ? "open" : ""}><summary>More</summary><div class="layer-ctl">
         <label for="t${L.id}">Type<select id="t${L.id}" data-act="type">${Object.entries(TYPES).map(([k,v]) => `<option value="${k}" ${k===L.type?"selected":""}>${v.label}</option>`).join("")}</select></label>
         <label for="r${L.id}">Box rotation (°)<input id="r${L.id}" type="number" step="0.5" data-act="rot" placeholder="${rotPh}" value="${L.rot==null?"":L.rot}"></label>
-
         ${L.type === "square" ? `<label class="lcheck full" for="sp${L.id}"><input type="checkbox" id="sp${L.id}" data-act="pieces" ${L.showPieces?"checked":""}> Show individual pieces</label>` : ""}
-        ${imgControls(L)}
+        ${imgMore(L)}
         ${calLine(L)}
-        ${sizeLine}
+        ${sizeSummary(L)}
         ${mdocBtn}
-        ${warn}
-      </div></div>`;
-  }).join("");
+      </div></details>
+    </div></div>`;
+}
+function renderLayers(){
+  const box = $("#layers");
+  renderData();
+  if(!state.layers.length && !PACE.length){ box.innerHTML = `<div class="empty">Nothing open yet. Press Open… or drop files on the map.</div>`; return; }
+  const sorted = [...state.layers].sort((a,b) => TYPES[a.type].rank - TYPES[b.type].rank || a.id - b.id);
+  const keys = new Set(PACE.map(g => g.key));
+  // a PACEtomo group is one row; the tilt series opened with it are nested under it
+  box.innerHTML = sorted.filter(L => !L.paceKey || !keys.has(L.paceKey)).map(layerCard).join("") +
+    PACE.map(g => { const kids = sorted.filter(L => L.paceKey === g.key); return paceCard(g) + (kids.length ? `<div class="nest">${kids.map(layerCard).join("")}</div>` : ""); }).join("");
 }
 $("#layers").addEventListener("input", e => {
   const el = e.target, L = layerOf(el); if(!L) return;
@@ -2778,7 +2615,7 @@ $("#layers").addEventListener("input", e => {
   else if(act === "rot"){ L.rot = el.value === "" ? null : Number(el.value); buildLayer(L); reselect(); render(); }
 });
 $("#layers").addEventListener("change", e => {
-  const el = e.target, L = layerOf(el); if(!L) return;
+  const el = e.target, L = layerOf(el); if(!L || !el.dataset.act) return;
   const act = el.dataset.act;
   if(act === "vis"){ L.visible = el.checked; render(); }
   else if(act === "type"){ L.type = el.value; L.rot = null; L.color = TYPES[L.type].color; setFocus(null); buildLayer(L); reselect(); renderLayers(); render(); }
@@ -2790,10 +2627,9 @@ $("#layers").addEventListener("change", e => {
 $("#layers").addEventListener("click", e => {
   const el = e.target.closest("[data-act]"), L = el && layerOf(el); if(!L) return;
   const act = el.dataset.act;
-  if(act === "remove"){ if(state.calib && state.calib.L === L) endCalib(); if(state.focus && L.montages.includes(state.focus)) setFocus(null); state.layers = state.layers.filter(x => x !== L); if(state.selected && state.selected.L === L){ state.selected = null; showInspector(); } renderLayers(); renderDataList(); render(); }
+  if(act === "remove"){ if(state.focus && L.montages.includes(state.focus)) setFocus(null); state.layers = state.layers.filter(x => x !== L); if(state.selected && state.selected.L === L){ state.selected = null; showInspector(); } renderLayers(); renderDataList(); render(); }
   else if(act === "zoom"){ setFocus(null); animateTo(viewFor(L.items)); }
   else if(act === "imgall"){ loadAllMontages(L); }
-  else if(act === "calib"){ startCalib(L); }
   else if(act === "refine"){ openRefine(L); }
   else if(act === "calclear"){ const k = magKey(L.items[0].doc, L.items[0].sec); delete USERCAL[k]; saveUserCal(); rebuildKeepFocus(); setMsg(`Forgot your image-shift calibration at ${magLabel(k)}.`); }
   else if(act === "mdocrot"){ L.rot = Math.round(L.mdocRot*10)/10; buildLayer(L); reselect(); renderLayers(); render(); }
@@ -2948,7 +2784,6 @@ function render(){
       }
     }
   }
-  if(state.calib) drawCalib();
   if(state.refine) drawRefine();
   // highlights
   for(const [it, col, lw] of [[state.hover, theme.ink, 1.5], [state.selected, theme.accent, 2.5]]){
@@ -3084,38 +2919,68 @@ function showTip(it, sx, sy){
   if(y + r.height > H - 8) y = sy - r.height - 14;
   tip.style.left = x + "px"; tip.style.top = y + "px";
 }
-function showInspector(){
-  const it = state.selected, el = $("#inspector");
-  $("#banner").style.visibility = it ? "hidden" : "";
-  if(!it){ el.classList.remove("open"); return; }
-  el.classList.add("open");
-  $("#inspTitle").innerHTML = `${esc(it.montage ? (it.extra.pieces ? it.montage.name : it.montage.name + " · piece " + it.sec.index) : it.label)}<span class="sub">[${esc(it.sec.kind)} = ${esc(it.sec.index)}] · ${esc(TYPES[it.L.type].label)}</span>`;
-  const rows = [
-    ["File", it.doc.name],
-    ["Center X", `${it.cx.toFixed(3)} µm`], ["Center Y", `${it.cy.toFixed(3)} µm`],
-    ["Box size", `${it.w.toFixed(3)} × ${it.h.toFixed(3)} µm`],
-    ["Image size", it.extra.sz ? `${it.extra.sz[0]} × ${it.extra.sz[1]} px` : "unknown"],
-    ["Pixel size used", it.extra.pxA > 0 ? `${it.extra.pxA.toPrecision(4)} Å` : "unknown"],
-    ["Size from", it.extra.sizeSrc],
-    ["Pixel × mag", it.extra.pxA > 0 && it.extra.mag > 0 ? `${(it.extra.pxA*it.extra.mag/1e4).toFixed(2)} µm (camera pixel, roughly constant per camera)` : "n/a"],
-    ["Box rotation", `${it.rot.toFixed(2)}°`],
-    ...((it.L.type === "exposure" || it.L.type === "tilt") ? [["IS → stage", userCalFor(it.doc, it.sec) ? "your calibration for this magnification" : `${state.settings.isScale} µm per IS unit, ${state.settings.isRot}°${state.settings.isMirror ? ", Y inverted" : ""}`]] : []),
-    ...(it.L.offsetApplied ? [["Atlas offset", `${state.settings.offset.x.toFixed(2)}, ${state.settings.offset.y.toFixed(2)} µm (included above)`]] : []),
-    ...(it.refined ? [["Position", it.refined.manual ? `placed by hand (${it.refined.date || ""})` : `refined by correlation, score ${it.refined.score != null ? Number(it.refined.score).toFixed(2) : "?"} (${it.refined.date || ""})`]] : []),
-    ...(it.pace ? [["PACEtomo", `${it.pace.g.name}, target ${it.pace.t.no}${it.pace.g.prev[it.pace.t.no] && it.pace.g.prev[it.pace.t.no].ok ? ", Preview matched in the View" : it.pace.g.anchored ? ", from the anchored View" : ", nominal stage position"}`]] : [])
-  ];
-  if(it.extra.pieces) rows.push(["Montage", `section ${it.extra.section}, ${it.extra.pieces} pieces of ${it.extra.pieceSize ? it.extra.pieceSize.join(" × ") + " px" : "?"}`]);
-  if(it.extra.placement === "piece") rows.push(["Placement", "PieceCoordinates (no StagePosition in mdoc)"]);
-  if(it.extra.fit) rows.push(["Fitted px→stage", `${(it.extra.fit.th*180/Math.PI).toFixed(2)}°, ${(it.extra.fit.sc*1e4).toFixed(2)} Å/px${it.extra.fit.m<0?", mirrored":""}`]);
-  if(it.L.type === "tilt") rows.push(["Tilt series", `${it.extra.tiltCount} tilts, ${it.extra.tiltRange}`]);
-  const kvRows = Object.entries(it.sec.kv).map(([k,v]) => `<tr class="${["StagePosition","ImageShift","Magnification","TiltAngle","PieceCoordinates","PixelSpacing"].includes(k)?"em":""}"><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("");
-  const hdr = Object.entries(it.doc.header).map(([k,v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("");
-  $("#inspBody").innerHTML =
-    `<table class="kv">${rows.map(([k,v]) => `<tr class="em"><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table>
-     <details open><summary>Section keys (${Object.keys(it.sec.kv).length})</summary><table class="kv">${kvRows}</table></details>
-     <details><summary>File header (${Object.keys(it.doc.header).length})</summary><table class="kv">${hdr}</table></details>`;
+// Short list first; everything else (and the raw mdoc keys) is under "More".
+function tiltInfo(doc){
+  const t = [...new Set(imageSections(doc).map(s => num(s.kv.TiltAngle)).filter(v => !isNaN(v)).map(v => Math.round(v*10)/10))].sort((a, b) => a - b);
+  if(t.length < 2) return null;
+  const steps = t.slice(1).map((v, i) => v - t[i]);
+  return {from: t[0], to: t[t.length - 1], inc: median(steps), n: imageSections(doc).length};
 }
-$("#inspClose").addEventListener("click", () => { state.selected = null; showInspector(); render(); });
+function shiftRows(sec, doc, tgt){
+  const rows = [], is = nums(sec && sec.kv.ImageShift);
+  if(is.length >= 2){ const um = doc ? isUm(sec, doc) : null; rows.push(["Image shift", `${is[0].toFixed(3)}, ${is[1].toFixed(3)}${um ? ` → ${um[0].toFixed(2)}, ${um[1].toFixed(2)} µm` : ""}`]); }
+  for(const [k, v] of Object.entries(sec ? sec.kv : {})) if(/specimenshift/i.test(k)) rows.push(["Specimen shift", v]);
+  if(tgt && isFinite(tgt.SSX) && isFinite(tgt.SSY)) rows.push(["Specimen shift", `${tgt.SSX.toFixed(3)}, ${tgt.SSY.toFixed(3)} µm (target file)`]);
+  return rows;
+}
+function inspHtml(title, sub, main, more, sec, doc){
+  $("#inspTitle").innerHTML = `${esc(title)}<span class="sub">${esc(sub)}</span>`;
+  const tbl = rows => `<table class="kv">${rows.map(([k,v]) => `<tr class="em"><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table>`;
+  const kv = o => `<table class="kv">${Object.entries(o).map(([k,v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table>`;
+  $("#inspBody").innerHTML = tbl(main) +
+    `<details class="more" ${state.inspMore ? "open" : ""} id="inspMore"><summary>More</summary>${more.length ? tbl(more) : ""}
+       ${sec ? `<details><summary>Section keys (${Object.keys(sec.kv).length})</summary>${kv(sec.kv)}</details>` : ""}
+       ${doc ? `<details><summary>File header (${Object.keys(doc.header).length})</summary>${kv(doc.header)}</details>` : ""}</details>`;
+  $("#inspMore").addEventListener("toggle", e => { state.inspMore = e.target.open; });
+}
+function showInspector(){
+  const it = state.selected, pg = !it && state.paceSel && state.paceSel.view ? state.paceSel : null, el = $("#inspector");
+  $("#banner").style.visibility = it || pg ? "hidden" : "";
+  if(!it && !pg){ el.classList.remove("open"); return; }
+  el.classList.add("open");
+  const off = state.settings.offset, offTxt = `${off.x.toFixed(2)}, ${off.y.toFixed(2)} µm (included above)`;
+  if(pg){
+    const b = paceViewBox(pg), v = pg.view, sz = imageSize(v.doc, v.sec);
+    const main = [["File", pg.viewfile], ["Center X", `${b.cx.toFixed(3)} µm`], ["Center Y", `${b.cy.toFixed(3)} µm`],
+      ["Box size", `${b.w.toFixed(3)} × ${b.h.toFixed(3)} µm`], ["Image size", sz ? `${sz[0]} × ${sz[1]} px` : "unknown"],
+      ["Pixel size used", `${(v.px*1e4*pg.scale).toPrecision(4)} Å${pg.scale !== 1 ? ` (${(v.px*1e4).toPrecision(4)} Å in the ${v.doc.synthetic ? "MRC header" : "mdoc"} × ${pg.scale})` : ""}`],
+      ["Box rotation", `${b.rot.toFixed(2)}°`], ...(off.on ? [["Atlas offset", offTxt]] : []),
+      ["Group offset", `${pg.delta[0].toFixed(2)}, ${pg.delta[1].toFixed(2)} µm${pg.anchored ? ` (correlation, score ${pg.score != null ? Number(pg.score).toFixed(2) : "?"})` : ""}`],
+      ...shiftRows(v.sec, null, pg.targets[0])];
+    const more = [["Target file", pg.path], ["Targets", `${pg.targets.length}${pg.tsNote ? ` · ${pg.tsNote}` : ""}`], ...(num(get(v.doc, v.sec, "Magnification")) > 0 ? [["Magnification", `${get(v.doc, v.sec, "Magnification")}×`]] : [])];
+    return inspHtml(`${pg.root || pg.name} · View`, "PACEtomo View image", main, more, v.sec, v.doc);
+  }
+  const e = it.extra, isMont = it.L.type === "atlas" || it.L.type === "square";
+  const main = [["File", it.doc.name], ["Center X", `${it.cx.toFixed(3)} µm`], ["Center Y", `${it.cy.toFixed(3)} µm`],
+    ["Box size", `${it.w.toFixed(3)} × ${it.h.toFixed(3)} µm`], ["Image size", e.sz ? `${e.sz[0]} × ${e.sz[1]} px` : "unknown"],
+    ["Pixel size used", e.pxA > 0 ? `${e.pxA.toPrecision(4)} Å` : "unknown"], ["Box rotation", `${it.rot.toFixed(2)}°`],
+    ...(it.L.offsetApplied ? [["Atlas offset", offTxt]] : [])];
+  if(e.fit) main.push(["Fitted px→stage", `${(e.fit.th*180/Math.PI).toFixed(2)}°, ${(e.fit.sc*1e4).toFixed(2)} Å/px${e.fit.m<0?", mirrored":""}`]);
+  if(it.L.type === "tilt"){
+    const t = tiltInfo(it.doc);
+    if(t) main.push(["Angle from", `${t.from.toFixed(1)}°`], ["Angle to", `${t.to.toFixed(1)}°`], ["Increment", `${t.inc.toFixed(1)}° (${t.n} tilts)`]);
+  }
+  if(!isMont) main.push(...shiftRows(it.sec, it.doc, it.pace && it.pace.t));
+  if(it.refined) main.push(["Position", it.refined.manual ? `placed by hand (${it.refined.date || ""})` : `aligned by correlation, score ${it.refined.score != null ? Number(it.refined.score).toFixed(2) : "?"} (${it.refined.date || ""})`]);
+  const more = [["Size from", e.sizeSrc], ...(e.mag > 0 ? [["Magnification", `${e.mag}×`]] : [])];
+  if(e.pieces) more.push(["Montage", `section ${e.section}, ${e.pieces} pieces of ${e.pieceSize ? e.pieceSize.join(" × ") + " px" : "?"}`]);
+  if(e.placement === "piece") more.push(["Placement", "PieceCoordinates (no StagePosition in mdoc)"]);
+  if(it.L.type === "tilt" && !isNaN(e.shownTilt)) more.push(["Shown tilt", `${e.shownTilt.toFixed(1)}°`]);
+  if(!isMont) more.push(["IS → stage", userCalFor(it.doc, it.sec) ? "saved calibration for this magnification" : `${state.settings.isScale} µm per IS unit, ${state.settings.isRot}°${state.settings.isMirror ? ", Y inverted" : ""}`]);
+  if(it.pace) more.push(["PACEtomo", `${it.pace.g.name}, target ${it.pace.t.no}${it.pace.g.prev[it.pace.t.no] && it.pace.g.prev[it.pace.t.no].ok ? ", Preview matched in the View" : it.pace.g.anchored ? ", from the aligned View" : ", nominal stage position"}`]);
+  inspHtml(it.montage ? (e.pieces ? it.montage.name : it.montage.name + " · piece " + it.sec.index) : it.label, `[${it.sec.kind} = ${it.sec.index}] · ${TYPES[it.L.type].label}`, main, more, it.sec, it.doc);
+}
+$("#inspClose").addEventListener("click", () => { state.selected = null; state.paceSel = null; showInspector(); renderPace(); render(); });
 
 /* ---------- interaction ---------- */
 const pointers = new Map();
@@ -3127,14 +2992,6 @@ cv.addEventListener("pointerdown", e => {
   if(pointers.size === 1){
     drag = {p, vx: state.view.x, vy: state.view.y, moved: false, button: e.button};
     if(state.align){ if(e.button === 0 && !spaceDown){ drag.align = true; drag.last = toWorld(...p); } else drag.alignPan = true; }
-    else if(state.move && !state.calib && e.button === 0){
-      const it = hitTest(...p), img = isImgItem(it) ? it : null;
-      if(img){ drag.item = img; drag.w0 = toWorld(...p); drag.members = groupMembers(img).map(m => ({m, x: m.cx, y: m.cy})); ghost = {items: new Set(drag.members.map(o => refKey(o.m)))}; }
-      else {
-        const g = paceHit(...p);
-        if(g){ drag.pace = g; drag.w0 = toWorld(...p); drag.d0 = g.delta.slice(); drag.members = paceItems(g).map(m => ({m, x: m.cx, y: m.cy})); ghost = {pace: g, items: new Set(drag.members.map(o => refKey(o.m)))}; }
-      }
-    }
     cv.classList.add("dragging");
   }
   else if(pointers.size === 2){
@@ -3184,26 +3041,11 @@ function endPointer(e){
   const p = pos(e);
   if(drag && drag.moved && drag.button === 2) rightPanAt = performance.now();
   if(drag && (drag.align || drag.alignPan || drag.button !== 0)){ /* aligning, panning or a right-click: no selection */ }
-  else if(drag && drag.moved && drag.item){
-    state.selected = drag.item; state.paceSel = null;
-    const n = drag.members.length;
-    commitManual(drag.members.map(o => o.m));
-    showInspector(); renderPace();
-    moveMsg(`Placed ${n > 1 ? `${n} images that share a stage position` : "the image"} by hand. Snap fine-tunes it; Reset undoes it.`);
-  }
-  else if(drag && drag.moved && drag.pace){
-    const g = drag.pace; state.paceSel = g; state.selected = null; showInspector();
-    if(g.rot == null){ g.rot = paceRot(g); }
-    savePace(g); rebuildKeepFocus();
-    g.status = `Moved by hand: offset ${g.delta[0].toFixed(2)}, ${g.delta[1].toFixed(2)} µm.${g.anchored ? "" : " Anchor to fine-tune it by correlation."}`; renderPace();
-    moveMsg(`${g.name}: moved the View and all its targets.`);
-  }
-  else if(drag && !drag.moved && pointers.size === 1 && state.calib){ calibClick(p); }
   else if(drag && !drag.moved && pointers.size === 1){
     const it = hitTest(...p), sq = hitTest(...p, "square"), pg = isImgItem(it) ? null : paceHit(...p);
     state.paceSel = pg;
-    if(!state.move && !pg && sq && sq.montage && (!state.focus || state.focus.key !== sq.montage.key)){ state.selected = sq; showInspector(); focusMontage(sq.montage); }
-    else if(!state.move && !pg && it && it.L.type === "atlas"){ fullView(); }
+    if(!pg && !isImgItem(it) && sq && sq.montage && (!state.focus || state.focus.key !== sq.montage.key)){ state.selected = sq; showInspector(); focusMontage(sq.montage); }
+    else if(!pg && it && it.L.type === "atlas"){ fullView(); }
     else { state.selected = pg ? null : it; showInspector(); render(); }
     renderPace();
   }
@@ -3235,54 +3077,28 @@ window.addEventListener("keydown", e => {
     if(e.code === "Space"){ e.preventDefault(); spaceDown = true; cv.classList.remove("aligning"); return; }
     if(e.code === "BracketLeft" || e.code === "BracketRight"){ e.preventDefault(); rotateAlign((e.code === "BracketLeft" ? 1 : -1)*(e.shiftKey ? 5 : 0.5)); return; }
     if(e.key === "d" || e.key === "D"){ setGhostDiff(!ghostDiff); return; }
-    if(e.key === "m" || e.key === "M") return;
-  }
-  if(e.key === "m" || e.key === "M"){ setMove(!state.move); return; }
-  if(state.move && (e.code === "BracketLeft" || e.code === "BracketRight")){
-    e.preventDefault();
-    rotateSelected((e.code === "BracketLeft" ? 1 : -1)*(e.shiftKey ? 5 : 0.5));
-    return;
   }
   if(e.key === "f" || e.key === "F"){ fullView(); }
   if(e.key === "d" || e.key === "D"){ setGhostDiff(!ghostDiff); setMsg(ghostDiff ? "Moving images are drawn in difference mode." : "Moving images are drawn at 50% opacity."); }
-  if(e.key === "Escape"){ if(state.calib){ if(state.calib.pending){ state.calib.pending = null; renderCalPanel(); render(); } return; } fullView(); }
+  if(e.key === "Escape"){ fullView(); }
 });
 
 /* ---------- controls ---------- */
 let pendingType = null;
-const OPEN_LABEL = {atlas: "atlas", square: "square maps", exposure: "exposures", tilt: "tilt series"};
-document.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", async () => {
-  const type = b.dataset.open;
+$("#openBtn").addEventListener("click", async () => {
   if(data.server){
-    const r = await serverPick({purpose: "mdoc", mode: "open", multi: true, ext: "mdoc", title: `Open ${OPEN_LABEL[type]} from the server`,
-      sub: "Click to select, click more to add. The .mrc next to each .mdoc is used for the images.", local: "Pick from this computer instead"});
+    const r = await serverPick({purpose: "open", mode: "open", multi: true, ext: "", title: "Open from the server",
+      sub: "Pick .mdoc files (atlas, square maps, exposures, tilt series) or a PACEtomo _tgts.txt. Click to select, click more to add.", local: "Pick from this computer instead"});
     if(!r) return;
-    if(!r.local) return openPaths(r.paths.map(path => ({kind: "server", path})), type);
+    if(!r.local) return openPaths(r.paths.map(path => ({kind: "server", path})), null);
   }
-  pendingType = type; $("#fileInput").value = ""; $("#fileInput").click();
-}));
-$("#openFolder").addEventListener("click", async () => {
-  if(!data.server) return chooseFolder();
-  const r = await serverPick({purpose: "folder", mode: "folder", title: "Choose a data folder on the server", sub: "Its mdoc and target files are listed in the Data panel."});
-  if(r && r.dir){ await srvBrowse(r.dir); $("#dataSec").scrollIntoView({block: "start", behavior: "smooth"}); }
+  pendingType = null; $("#fileInput").value = ""; $("#fileInput").click();
 });
-$("#fileInput").addEventListener("change", e => openFiles(e.target.files, pendingType));
+$("#openFolder").addEventListener("click", chooseFolder);
 $("#folderInput").addEventListener("change", e => setDataFolder([...e.target.files].map(f => ({file: f, path: f.webkitRelativePath || f.name}))));
 $("#clearAll").addEventListener("click", clearAll);
-$("#moveBtn").addEventListener("click", () => setMove(!state.move));
-$("#snapBtn").addEventListener("click", () => snapSelected());
 $("#corrRot").checked = corrRot;
 $("#corrRot").addEventListener("change", e => { corrRot = e.target.checked; try { localStorage.setItem(ROT_KEY, corrRot ? "1" : "0"); } catch(err){} });
-$("#resetPosBtn").addEventListener("click", resetSelected);
-$("#paceOpen").addEventListener("click", async () => {
-  if(data.server){
-    const r = await serverPick({purpose: "pace", mode: "open", multi: true, ext: "tgts", title: "Open PACEtomo targets from the server",
-      sub: "Pick the _tgts.txt file. Its View image, target Previews and tilt series are opened with it.", local: "Pick from this computer instead"});
-    if(!r) return;
-    if(!r.local) return openPaths(r.paths.map(path => ({kind: "server", path})));
-  }
-  $("#tgtsInput").value = ""; $("#tgtsInput").click();
-});
 $("#tgtsInput").addEventListener("change", e => openFiles(e.target.files, null));
 $("#stateSave").addEventListener("click", saveState);
 $("#stateLoad").addEventListener("click", loadState);
@@ -3295,7 +3111,6 @@ $("#stateRestore").addEventListener("click", async () => {
 });
 window.addEventListener("beforeunload", saveSessionLocal);
 document.addEventListener("visibilitychange", () => { if(document.visibilityState === "hidden") saveSessionLocal(); });
-$("#offAlign").addEventListener("click", () => alignOffset());
 $("#useRefined").addEventListener("change", e => { state.settings.useRefined = e.target.checked; rebuildKeepFocus(); });
 $("#refClear").addEventListener("click", () => { REFINED = {}; saveRefined(); rebuildKeepFocus(); setMsg("Cleared all refined positions."); });
 $("#offReset").addEventListener("click", () => setOffset(0, 0, "Offset reset to 0."));

@@ -1117,7 +1117,7 @@ async function findMrc(doc){
   }
   for(const c of cands){ const f = data.extra.get(c.name.toLowerCase()); if(f) return fileHandle(f, c.name); }
   const names = cands.map(c => c.name).join(" or ");
-  throw new Error(data.folder ? `${names} is not in the data folder.` : `Choose a data folder, or select ${names} with the mdoc.`);
+  throw new Error(data.folder ? `${names} is not in the data folder. If it is a symbolic link: browsers leave links out of a chosen folder, so run the viewer from mdoc_server.py, which follows them.` : `Choose a data folder, or select ${names} with the mdoc.`);
 }
 const MODE_BYTES = {0: 1, 1: 2, 2: 4, 6: 2, 12: 2};
 function getHeader(doc){
@@ -2548,7 +2548,7 @@ function drawPace(){
 // Uses the positions as aligned in the viewer. Frames are drawn on a canvas; the server's ffmpeg encodes them
 // (or, without it, the browser records the canvas in real time).
 const MV_KEY = "mdocStageMap.movie";
-const MV_DEF = {size: "1920x1080", fps: 30, zoom: 6, tAtlas: 3, tToSq: 4, tSq: 2, tToTg: 4, hold: 3, tToView: 3, tPick: 0.8, tiltFps: 10, schematic: true, upright: true, level: true, turn: 0, first: "low",
+const MV_DEF = {size: "1920x1080", fps: 30, zoom: 6, tAtlas: 3, tToSq: 4, tSq: 2, tToTg: 4, hold: 3, tToView: 3, tPick: 0.8, viewZoom: 1, tiltFps: 10, schematic: true, upright: true, level: true, turn: 0, first: "low",
   labels: [["Atlas", "Grid overview"], ["Square map", "Selecting the acquisition position"], ["Acquisition position", "Tilt-series target"], ["Tilt series", ""]],
   pLabels: [["Atlas", "Grid overview"], ["Square map", "Selecting the area"], ["Target selection", ""], ["Tilt series", ""]]};
 let mv = null;
@@ -2937,7 +2937,8 @@ function mvForm(){
     ${stage.map((s, i) => `<div class="mvlab"><span>${i + 1}. ${s}</span><input type="text" data-lab="${i}:0" value="${esc(labs[i][0])}" placeholder="Title (empty = none)" aria-label="${s} title"><input type="text" data-lab="${i}:1" value="${esc(labs[i][1])}" placeholder="${subPh(i)}" aria-label="${s} subtitle"></div>`).join("")}
     <h4>Camera</h4>
     <div class="fields">
-      ${pace ? "" : `<label class="field">Final zoom ×<input type="number" id="mvZoom" min="1" max="60" step="1" value="${c.zoom}"></label>`}
+      ${pace ? `<label class="field" title="1 = the View and all targets just fit. Lower shows more of the square map around them.">View zoom ×<input type="number" id="mvVZoom" min="0.2" max="5" step="0.1" value="${c.viewZoom}"></label>`
+             : `<label class="field">Final zoom ×<input type="number" id="mvZoom" min="1" max="60" step="1" value="${c.zoom}"></label>`}
       <label class="field">Extra turn at start (°)<input type="number" id="mvTurn" step="90" value="${c.turn}"></label>
       <label class="check full"><input type="checkbox" id="mvLevel" ${c.level ? "checked" : ""}> Start with the atlas level</label>
       <label class="check full"><input type="checkbox" id="mvUpright" ${c.upright ? "checked" : ""}> Turn so the square map ends upright</label>
@@ -2972,7 +2973,7 @@ function mvRead(){
   const labs = mv.kind === "pace" ? c.pLabels : c.labels;
   document.querySelectorAll("#mvSide [data-lab]").forEach(el => { const [i, j] = el.dataset.lab.split(":").map(Number); labs[i][j] = el.value; });
   Object.assign(c, {zoom: Math.max(1, n("#mvZoom", c.zoom)), hold: Math.max(0, n("#mvHold", c.hold)), upright: $("#mvUpright").checked, level: $("#mvLevel").checked, turn: n("#mvTurn", 0),
-    tAtlas: n("#mvTAtlas", 3), tToSq: n("#mvTToSq", 4), tSq: n("#mvTSq", 2), tToTg: n("#mvTToTg", c.tToTg), tToView: n("#mvTToV", c.tToView), tPick: Math.max(0.2, n("#mvTPick", c.tPick)), start: n("#mvStart", 0), tiltFps: Math.max(1, n("#mvTfps", 10)),
+    tAtlas: n("#mvTAtlas", 3), tToSq: n("#mvTToSq", 4), tSq: n("#mvTSq", 2), tToTg: n("#mvTToTg", c.tToTg), tToView: n("#mvTToV", c.tToView), viewZoom: Math.max(0.2, n("#mvVZoom", c.viewZoom)), tPick: Math.max(0.2, n("#mvTPick", c.tPick)), start: n("#mvStart", 0), tiltFps: Math.max(1, n("#mvTfps", 10)),
     low: n("#mvLow", -60), high: n("#mvHigh", 60), first: $("#mvFirst").value, schematic: $("#mvSchem").checked, size: $("#mvSize").value, fps: Number($("#mvFps").value) || 30});
   if(c.low > c.high) [c.low, c.high] = [c.high, c.low];
   mvSaveCfg();
@@ -3171,9 +3172,13 @@ function mvPaceSteps(){
 }
 function mvPlanPace(B){
   const {MW, MH, k, f0, fEnd, full, zSq, TB, TS, hasAtlas, sq, cam0} = B, c = mv.cfg, vb = mv.viewImg;
-  const Pv = mvCorners(vb).map(p => mvPt({...cam0, f: fEnd}, p[0], p[1]));
-  const vw = Math.max(...Pv.map(p => p[0])) - Math.min(...Pv.map(p => p[0])), vh = Math.max(...Pv.map(p => p[1])) - Math.min(...Pv.map(p => p[1]));
-  const zV = 0.9*Math.min(MW/vw, MH/vh), camV = {x: vb.cx, y: vb.cy, s: zV, f: fEnd, W: MW, H: MH};
+  // the View and every target circle fit in the frame (below the title); View zoom scales that
+  const cf = {...cam0, f: fEnd}, Pv = mvCorners(vb).map(p => mvPt(cf, p[0], p[1]));
+  for(const x of mv.tg){ const [sx, sy] = mvPt(cf, x.box.cx, x.box.cy), r = Math.hypot(x.box.w, x.box.h)/2*1.25; Pv.push([sx - r, sy - r], [sx + r, sy + r]); }
+  const X0 = Math.min(...Pv.map(p => p[0])), X1 = Math.max(...Pv.map(p => p[0])), Y0 = Math.min(...Pv.map(p => p[1])), Y1 = Math.max(...Pv.map(p => p[1]));
+  const vw = X1 - X0, vh = Y1 - Y0, X = (X0 + X1)/2, Y = (Y0 + Y1)/2, cc = Math.cos(fEnd), sn = Math.sin(fEnd);
+  const zV = Math.max(0.05, c.viewZoom || 1)*Math.min(0.9*MW/vw, 0.76*MH/vh);
+  const camV = {x: X*cc - Y*sn, y: (X*sn + Y*cc)/ys(), s: zV, f: fEnd, W: MW, H: MH};
   // grid of tilt-series insets, all turned to the same right angle so they match the map
   const ts = mv.tg.filter(x => x.tilts), n = ts.length;
   let grid = null;

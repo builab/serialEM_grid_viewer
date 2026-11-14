@@ -160,7 +160,7 @@ Right-click the View of a PACEtomo area and choose **Make PACEtomo movie…**. T
 
 The tilt series stand in for their targets, at their aligned positions. Targets without a tilt series are picked but left out of the grid. The playback uses the same bidirectional order as the acquisition movie (start → lowest → highest → start), not the dose-symmetric acquisition order.
 
-The dialog has the same labels, camera, playback and output settings as the acquisition movie. The timing settings are the atlas, the zoom to the square, the square map, the zoom to the View, and the time per target.
+The camera shows the View and all targets; **View zoom** (1 = they just fit) zooms in or out from there. The dialog has the same labels, camera, playback and output settings as the acquisition movie. The timing settings are the atlas, the zoom to the square, the square map, the zoom to the View, and the time per target.
 
 ![PACEtomo movie frames](docs/images/pacetomo-movie.png)
 
@@ -213,7 +213,7 @@ Only the folders you list are reachable. Everything is read-only, except session
 - **Server:** Python 3.7 or newer.
   - Optional: `numpy`. The server then shrinks each image piece before sending it, which is much faster over a network.
   - Optional: `ffmpeg` on the server machine, for `.mp4` movies. `--ffmpeg` points at a specific binary; the copy from the `imageio-ffmpeg` Python package is also found.
-- **Data:** SerialEM `.mdoc` files with their `.mrc` images. Little-endian MRC, modes 0, 1, 2, 6 and 12.
+- **Data:** SerialEM `.mdoc` files with their `.mrc` images. A tilt series may also be kept as `.st` (for example `TS_001.mrc.mdoc` with `TS_001.st`). Symbolic links work through `mdoc_server.py`; browsers leave links out when a folder is chosen without the server. Little-endian MRC, modes 0, 1, 2, 6 and 12.
 
 ## License
 

@@ -25,7 +25,7 @@ It is one HTML page (`index.html`) plus a small Python server (`mdoc_server.py`)
 
 ## Quick start
 
-On the computer that has the data. Recommended Data Organization
+On the remote computer that has the data. Organize the data this way
 
 ```text
 SerialEMData/
@@ -57,12 +57,15 @@ Start the remote server where the data is:
 ```bash
 git clone https://github.com/builab/serialEM_grid_viewer.git
 cd serialEM_grid_viewer
-python3 mdoc_server.py /path/to/your/serialEM/data --port 8765
 ```
 
-Do port forwarding like Cryosparc on your local computer
+Start the server on the remote workstation, listening only locally, and tunnel the port:
 
 ```bash
+# on the workstation
+python3 mdoc_server.py /path/to/your/serialEM/data --port 8765
+
+# on your local computer do port forwarding like Cryosparc
 ssh -N -f -L localhost:8765:localhost:8765 user@remote_server
 ```
 
@@ -186,20 +189,6 @@ python3 mdoc_server.py ROOT [ROOT ...] [options]
 ```
 
 Only the folders you list are reachable. Everything is read-only, except session `.json` files and movie `.mp4` files saved inside those folders. Requests that write need a JSON content type, so a page from another website cannot make your browser write files there. At start-up the server prints the shared folders and whether it found ffmpeg.
-
-## Running on a remote workstation
-
-Start the server on the workstation, listening only locally, and tunnel the port:
-
-```bash
-# on the workstation
-python3 mdoc_server.py /data/krios
-
-# on your own computer
-ssh -L 8765:localhost:8765 user@workstation
-```
-
-Then open http://localhost:8765 on your own computer. Open and Save browse the workstation's folders.
 
 ## Requirements
 

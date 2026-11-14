@@ -152,6 +152,8 @@ For the movie, the square map is rebuilt as one image: every piece is re-read at
 
 ## PACEtomo movie
 
+![PACEtomo movie](docs/images/pacetomo-movie.png)
+
 Right-click the View of a PACEtomo area and choose **Make PACEtomo movie…**. The movie goes:
 
 1. Atlas → square map → zoom to the View.
@@ -162,7 +164,9 @@ The tilt series stand in for their targets, at their aligned positions. Targets 
 
 The camera shows the View and all targets; **View zoom** (1 = they just fit) zooms in or out from there. The dialog has the same labels, camera, playback and output settings as the acquisition movie. The timing settings are the atlas, the zoom to the square, the square map, the zoom to the View, and the time per target.
 
-![PACEtomo movie frames](docs/images/pacetomo-movie.png)
+![PACEtomo movie frames](docs/images/pacetomo-movie-preview.png)
+
+
 
 ## Sessions
 

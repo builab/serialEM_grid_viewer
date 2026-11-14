@@ -52,7 +52,7 @@ SerialEMData/
     └── T_1_tgts.txt
 ```
 
-Start the remote server where the data is:
+On the remote server where the data is, install serialEM_grid_viewer
 
 ```bash
 git clone https://github.com/builab/serialEM_grid_viewer.git
@@ -204,4 +204,4 @@ GNU General Public License v3.0. See [LICENSE](LICENSE).
 
 ---
 
-Vibecoded by [BuiLab@McGill](https://github.com/builab/serialEM_grid_viewer/).
+Vibecoded by [BuiLab@McGill](https://huy-bui.lab.mcgill.ca/).

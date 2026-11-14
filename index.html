@@ -2142,7 +2142,7 @@ try { VSCALE = JSON.parse(localStorage.getItem(VSCALE_KEY) || "{}") || {}; } cat
 let paceSeq = 0;
 function savePaceStore(){ try { localStorage.setItem(PACE_KEY, JSON.stringify(PACESTORE)); } catch(e){} }
 function savePace(g){
-  PACESTORE[g.key] = {delta: g.delta, rot: g.rot, rotSet: !!g.rotSet, flip: g.flip, scale: g.scale, anchored: g.anchored, score: g.score, prev: g.prev, date: new Date().toLocaleString()};
+  PACESTORE[g.key] = {color: g.color, delta: g.delta, rot: g.rot, rotSet: !!g.rotSet, flip: g.flip, scale: g.scale, anchored: g.anchored, score: g.score, prev: g.prev, date: new Date().toLocaleString()};
   savePaceStore();
 }
 function parseTgts(text){
@@ -2205,7 +2205,7 @@ async function openPace(kind, path, text){
   const sv = PACESTORE[key] || {};
   const g = {id: ++paceSeq, key, kind, path, dir: dirOf(path), name: file.replace(/\.txt$/i, ""), root, settings: t.settings, targets,
     viewfile: targets[0].viewfile || `${root}_tgt_001_view.mrc`, view: null, previews: {}, visible: true, showImg: true,
-    delta: sv.delta || [0, 0], scale: sv.scale > 0 ? sv.scale : 1, scaleKnown: sv.scale > 0, rot: sv.rot ?? null, rotSet: !!sv.rotSet, flip: sv.flip || 1, anchored: !!sv.anchored, score: sv.score ?? null, prev: sv.prev || {},
+    color: /^#[0-9a-f]{6}$/i.test(sv.color || "") ? sv.color : PACE_COLOR, delta: sv.delta || [0, 0], scale: sv.scale > 0 ? sv.scale : 1, scaleKnown: sv.scale > 0, rot: sv.rot ?? null, rotSet: !!sv.rotSet, flip: sv.flip || 1, anchored: !!sv.anchored, score: sv.score ?? null, prev: sv.prev || {},
     status: sv.anchored ? `Alignment restored (${sv.date || "earlier"}).` : "Not aligned yet: positions are SerialEM's nominal stage positions.", err: "", busy: false};
   const missing = targets.filter(x => !x.stage).length;
   if(missing) g.err = `${missing} target${missing === 1 ? "" : "s"} without stageX/stageY are not shown.`;
@@ -2357,8 +2357,8 @@ async function refinePace(g, rotOn){
   g.busy = false; savePace(g); rebuildKeepFocus(); renderPace();
 }
 function resetPace(g){
-  delete PACESTORE[g.key]; savePaceStore();
   Object.assign(g, {delta: [0, 0], scale: 1, scaleKnown: true, rot: null, rotSet: false, flip: 1, anchored: false, score: null, prev: {}, status: "Reset to SerialEM's nominal stage positions."});
+  savePace(g);       // keeps the group's colour
   rebuildKeepFocus(); renderPace();
 }
 function openPaceTS(g){
@@ -2373,11 +2373,11 @@ function paceCard(g){
   const nprev = Object.values(g.prev).filter(p => p.ok).length;
   const vsz = g.view && imageSize(g.view.doc, g.view.sec);
   const view = g.view ? `${g.viewfile} · ${vsz ? `${vsz[0]}×${vsz[1]} px · ` : ""}${+(g.view.px*1e4).toPrecision(4)} Å/px (${g.view.doc.synthetic ? "MRC header" : "mdoc"}) → ${fmtLen(g.view.w*g.scale)} × ${fmtLen(g.view.h*g.scale)}${g.scale !== 1 ? ` (resized ×${g.scale})` : ""}` : (g.err ? "" : `${g.viewfile} · loading…`);
-  const sel = state.paceSel === g ? ` style="border-color:${PACE_COLOR}"` : "";
+  const sel = state.paceSel === g ? ` style="border-color:${g.color}"` : "";
   return `<div class="layer" data-pace="${g.id}"${sel}>
     <div class="layer-head">
       <input type="checkbox" data-pact="vis" ${g.visible ? "checked" : ""} aria-label="Show ${esc(g.name)}">
-      <span class="sw" style="width:12px;height:12px;border-radius:3px;background:${PACE_COLOR}"></span>
+      <input type="color" data-pact="color" value="${g.color}" aria-label="Color for ${esc(g.name)}">
       <button class="lname" data-pact="zoom" title="Zoom to ${esc(g.name)}">${esc(g.name)}</button>
       <span class="count">${n} target${n === 1 ? "" : "s"}</span>
       <button class="x" data-pact="remove" aria-label="Close ${esc(g.name)}">×</button>
@@ -2414,6 +2414,10 @@ $("#layers").addEventListener("change", e => {
   else if(el.dataset.pact === "img"){ g.showImg = el.checked; render(); }
   else if(el.dataset.pact === "scale"){ const v = Number(el.value); if(v >= 0.2 && v <= 5){ g.scale = v; savePace(g); renderPace(); showInspector(); render(); } }
 });
+$("#layers").addEventListener("input", e => {
+  const el = e.target, row = el.closest("[data-pace]"), g = row && PACE.find(x => x.id === Number(row.dataset.pace));
+  if(g && el.dataset.pact === "color"){ g.color = el.value; savePace(g); render(); }
+});
 // remember which "More" sections are open across re-renders (toggle does not bubble, so listen in the capture phase)
 $("#layers").addEventListener("toggle", e => {
   const id = e.target.dataset && e.target.dataset.more; if(!id) return;
@@ -2430,24 +2434,28 @@ function drawPace(){
       if(g.showImg && g.view.canvas){ if(ghostPace(g)) ghostOn(); drawTile({tile: g.view.canvas}, b, s); ghostOff(); }
       const [x, y] = toScreen(b.cx, b.cy);
       ctx.save(); ctx.translate(x, y); ctx.rotate(canvasAngle(b.rot));
-      ctx.strokeStyle = PACE_COLOR; ctx.lineWidth = selected ? 2.5 : 1.4; ctx.setLineDash(g.anchored ? [] : [6, 4]);
+      ctx.strokeStyle = g.color; ctx.lineWidth = selected ? 2.5 : 1.4; ctx.setLineDash(g.anchored ? [] : [6, 4]);
       ctx.strokeRect(-b.w*s/2, -b.h*s/2, b.w*s, b.h*s); ctx.setLineDash([]); ctx.restore();
       if(state.settings.showLabels && b.w*s > 60){
-        ctx.font = `600 11px ${getFont("--font-body")}`; ctx.fillStyle = PACE_COLOR; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+        ctx.font = `600 11px ${getFont("--font-body")}`; ctx.fillStyle = g.color; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
         const top = toScreen(b.cx, b.cy); ctx.fillText(g.root || g.name, top[0], top[1] - b.h*s/2 - 4);
       }
     }
+    const tsAt = new Map();
+    for(const L of state.layers) if(L.visible) for(const it of L.items) if(it.pace && it.pace.g === g) tsAt.set(it.pace.t, it);
     for(const t of g.targets){
       if(!t.stage) continue;
-      const p = paceTargetPos(g, t), pv = g.previews[t.no], pr = g.prev[t.no];
+      const p = paceTargetPos(g, t), pv = g.previews[t.no], pr = g.prev[t.no], ts = tsAt.get(t);
       if(g.showImg && pv && pv.canvas){ if(ghostPace(g)) ghostOn(); drawTile({tile: pv.canvas}, {cx: p[0], cy: p[1], w: pv.w, h: pv.h, rot: pr && pr.ok ? pr.rot : paceRot(g), flip: g.flip}, s); ghostOff(); }
-      const [x, y] = toScreen(...p), r = Math.max(4, Math.min(14, 0.3*s));
-      ctx.strokeStyle = PACE_COLOR; ctx.lineWidth = 1.5; ctx.setLineDash(t.skip ? [2, 2] : []);
+      // the circle goes around the image at the target: half its diagonal, never smaller than a visible dot
+      const diag = Math.max(pv && pv.canvas ? Math.hypot(pv.w, pv.h) : 0, ts ? Math.hypot(ts.w, ts.h) : 0);
+      const [x, y] = toScreen(...p), r = Math.max(5, diag > 0 ? diag/2*s + 2 : Math.min(14, 0.3*s));
+      ctx.strokeStyle = g.color; ctx.lineWidth = 1.5; ctx.setLineDash(t.skip ? [2, 2] : []);
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
-      if(pr && pr.ok){ ctx.beginPath(); ctx.moveTo(x - r*0.6, y); ctx.lineTo(x + r*0.6, y); ctx.moveTo(x, y - r*0.6); ctx.lineTo(x, y + r*0.6); ctx.stroke(); }
+      if(pr && pr.ok){ const c = Math.min(6, r*0.6); ctx.beginPath(); ctx.moveTo(x - c, y); ctx.lineTo(x + c, y); ctx.moveTo(x, y - c); ctx.lineTo(x, y + c); ctx.stroke(); }
       if(state.settings.showLabels && s > 2){
-        ctx.font = `600 11px ${getFont("--font-mono")}`; ctx.fillStyle = PACE_COLOR; ctx.textAlign = "left"; ctx.textBaseline = "middle";
-        ctx.fillText(String(Number(t.no) || t.no), x + r + 3, y - r);
+        ctx.font = `600 11px ${getFont("--font-mono")}`; ctx.fillStyle = g.color; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+        ctx.fillText(String(Number(t.no) || t.no), x + r*0.71 + 4, y - r*0.71 - 4);
       }
     }
   }

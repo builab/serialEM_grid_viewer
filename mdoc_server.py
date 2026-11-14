@@ -3,7 +3,9 @@
 mdoc_server.py - serve mdoc Stage Map and your SerialEM data folders to a browser.
 
 The viewer page (index.html) must sit next to this script, or be given with --html.
-Only the folders you list are reachable, and only for reading.
+Only the folders you list are reachable. Everything is read-only except session
+files: the viewer can save its state as a .json file inside those folders (turn
+that off with --read-only).
 
 Usage
     python3 mdoc_server.py /path/to/data [/another/root ...] [--port 8765] [--host 127.0.0.1]
@@ -14,6 +16,7 @@ Examples
     python3 mdoc_server.py /data/krios
     python3 mdoc_server.py D:\\SerialEM\\Sessions --port 9000          (Windows)
     python3 mdoc_server.py /data/krios --host 0.0.0.0                 (reachable from other machines)
+    python3 mdoc_server.py /data/krios --read-only                    (never write session files)
 
 To view data on a remote workstation without opening a port to the network,
 start the server there on 127.0.0.1 and tunnel it:
@@ -39,15 +42,19 @@ except ImportError:
     np = None
 
 APP = "mdoc-stage-map"
-VERSION = "1.1"
+VERSION = "1.2"
 MRC_EXT = (".mrc", ".st", ".map", ".mrcs", ".ali", ".preali")
 CHUNK = 1 << 20          # 1 MiB per write when streaming a file
 LIST_LIMIT = 20000       # most mdoc files returned by one recursive listing
 TGTS_RE = re.compile(r"_tgts(_p\d+)?\.txt$", re.I)   # PACEtomo target files
 
+SAVE_EXT = (".json",)    # the only files the server will write
+SAVE_LIMIT = 64 << 20    # largest session file accepted, in bytes
+
 ROOTS = {}               # name -> absolute real path
 HTML_PATH = None
 VERBOSE = False
+WRITABLE = True
 
 
 def norm(p):
@@ -117,6 +124,19 @@ def read_binned_section(real, z, binf):
 
 def listed(name):
     return name.lower().endswith(".mdoc") or bool(TGTS_RE.search(name))
+
+
+def ext_filter(spec):
+    """Build a file-name test from ?ext=: comma-separated extensions, 'tgts' for PACEtomo
+    target files, '*' for every file. Empty means the default: mdoc and target files."""
+    toks = [t.strip().lower().lstrip(".") for t in (spec or "").split(",") if t.strip()]
+    if not toks:
+        return listed
+    if "*" in toks:
+        return lambda n: True
+    exts = tuple("." + t for t in toks if t != "tgts")
+    tg = "tgts" in toks
+    return lambda n: (bool(exts) and n.lower().endswith(exts)) or (tg and bool(TGTS_RE.search(n)))
 
 
 def has_mrc(real_mdoc):
@@ -206,9 +226,10 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/info":
                 start = next(iter(ROOTS)) if len(ROOTS) == 1 else ""
                 return self.send_json({"app": APP, "version": VERSION, "start": start, "numpy": np is not None,
+                                       "write": WRITABLE, "sep": os.sep,
                                        "roots": [{"name": n, "path": r} for n, r in ROOTS.items()]})
             if url.path == "/api/list":
-                return self.api_list(arg("path"), arg("recursive") == "1")
+                return self.api_list(arg("path"), arg("recursive") == "1", ext_filter(arg("ext")))
             if url.path == "/api/stat":
                 real, api = resolve(arg("path"))
                 if not real or not os.path.isfile(real):
@@ -250,7 +271,68 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 return
 
-    def api_list(self, path, recursive):
+    def do_POST(self):
+        url = urllib.parse.urlparse(self.path)
+        q = urllib.parse.parse_qs(url.query)
+        try:
+            if url.path == "/api/save":
+                return self.api_save(q.get("path", [""])[0], q.get("overwrite", ["0"])[0] == "1")
+            return self.send_err(404, "Unknown address.")
+        except PermissionError as e:
+            return self.send_err(403, str(e))
+        except FileNotFoundError as e:
+            return self.send_err(404, str(e))
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except Exception as e:
+            try:
+                return self.send_err(500, f"{type(e).__name__}: {e}")
+            except Exception:
+                return
+
+    def api_save(self, path, overwrite):
+        """Write a session .json inside a shared folder: never another file type, never outside the roots."""
+        if not WRITABLE:
+            raise PermissionError("This server was started with --read-only, so it cannot save files.")
+        # a JSON content type makes browsers send a CORS preflight, which this server never
+        # answers, so a page from another site cannot make your browser save files here
+        if not (self.headers.get("Content-Type") or "").lower().startswith("application/json"):
+            return self.send_err(415, "Send the session as application/json.")
+        n =int(self.headers.get("Content-Length") or 0)
+        if n <= 0 or n > SAVE_LIMIT:
+            return self.send_err(413 if n > 0 else 400, "The session file is empty or too large.")
+        body = self.rfile.read(n)
+        real, api = resolve(path)
+        if not real or "/" not in api:
+            raise PermissionError("Choose a folder inside one of the shared folders.")
+        if not real.lower().endswith(SAVE_EXT):
+            raise PermissionError("Only .json session files can be saved.")
+        folder = os.path.dirname(real)
+        if not os.path.isdir(folder):
+            raise FileNotFoundError("That folder does not exist.")
+        if os.path.islink(real):
+            raise PermissionError("Will not write through a link.")
+        if os.path.isdir(real):
+            raise PermissionError("A folder has that name.")
+        if os.path.exists(real) and not overwrite:
+            return self.send_json({"error": "exists", "path": api}, 409)
+        try:
+            json.loads(body.decode("utf-8"))
+        except Exception:
+            return self.send_err(400, "The data is not valid JSON.")
+        tmp = os.path.join(folder, f".{os.path.basename(real)}.{os.getpid()}.tmp")
+        try:
+            with open(tmp, "wb") as f:
+                f.write(body)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, real)       # atomic: a crash never leaves half a file
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        return self.send_json({"path": api, "size": len(body)})
+
+    def api_list(self, path, recursive, want=listed):
         real, api = resolve(path)
         if real is None:                      # top level: the shared roots
             return self.send_json({"path": "", "parent": None,
@@ -271,7 +353,7 @@ class Handler(BaseHTTPRequestHandler):
                 seen.add(key)
                 dn[:] = sorted(d for d in dn if not d.startswith("."))
                 for f in sorted(fn):
-                    if listed(f):
+                    if want(f):
                         full = os.path.join(dp, f)
                         rel = os.path.relpath(dp, real).replace(os.sep, "/")
                         files.append({"name": f, "path": f"{api}/{os.path.relpath(full, real).replace(os.sep, '/')}",
@@ -288,19 +370,20 @@ class Handler(BaseHTTPRequestHandler):
                         continue
                     if e.is_dir():
                         dirs.append({"name": e.name, "path": f"{api}/{e.name}"})
-                    elif listed(e.name):
+                    elif want(e.name):
                         files.append({"name": e.name, "path": f"{api}/{e.name}", "rel": "", "mrc": e.name.lower().endswith(".mdoc") and has_mrc(e.path)})
         return self.send_json({"path": api, "parent": parent, "dirs": dirs, "files": files, "truncated": truncated})
 
 
 def main():
-    global HTML_PATH, VERBOSE
-    ap = argparse.ArgumentParser(description="Serve mdoc Stage Map and SerialEM data folders (read-only).")
+    global HTML_PATH, VERBOSE, WRITABLE
+    ap = argparse.ArgumentParser(description="Serve mdoc Stage Map and SerialEM data folders (read-only except session .json files).")
     ap.add_argument("roots", nargs="+", help="data folders to share")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--host", default="127.0.0.1", help="127.0.0.1 (default) = this computer only; 0.0.0.0 = whole network")
     ap.add_argument("--html", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"),
                     help="path to the viewer page (default: index.html next to this script)")
+    ap.add_argument("--read-only", action="store_true", help="never write anything, not even session .json files")
     ap.add_argument("-v", "--verbose", action="store_true", help="log every request")
     a = ap.parse_args()
 
@@ -316,6 +399,7 @@ def main():
         ROOTS[name] = real
     HTML_PATH = os.path.realpath(a.html)
     VERBOSE = a.verbose
+    WRITABLE = not a.read_only
     if not os.path.isfile(HTML_PATH):
         print(f"Warning: viewer page not found at {HTML_PATH}", file=sys.stderr)
 
@@ -327,7 +411,8 @@ def main():
         print(f"  sharing  {n:<16} {r}")
     print(f"\n  Open  http://{shown}:{a.port}\n")
     if a.host not in ("127.0.0.1", "localhost"):
-        print("  Note: other computers on the network can read the shared folders.\n")
+        print("  Note: other computers on the network can read the shared folders"
+              + (" and save session .json files in them.\n" if WRITABLE else ".\n"))
     print("  Press Ctrl+C to stop.")
     try:
         srv.serve_forever()

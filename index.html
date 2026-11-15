@@ -10,35 +10,29 @@
 <style>
 :root{
   /* layout: top bar of open actions | left rail with layers + calibration | stage canvas in µm with a floating inspector */
-  --bg:#e9edf0;
-  --panel:#f7f9fa;
-  --ink:#172026;
-  --muted:#58656e;
-  --line:#d0d8dd;
-  --accent:#0a6f7d;
-  --accent-ink:#ffffff;
-  --canvas:#dfe5e9;
-  --gridline:rgba(23,32,38,.07);
-  --gridring:rgba(10,111,125,.35);
-  --warn:#9a5b00;
+  /* one palette for everyone: the page looks the same whether the computer is in light or dark mode */
+  --bg:#0f1417;
+  --panel:#151c20;
+  --ink:#dbe4e8;
+  --muted:#8c9aa3;
+  --line:#28333a;
+  --accent:#3bb4c4;
+  --accent-ink:#06191c;
+  --canvas:#0b1013;
+  --gridline:rgba(219,228,232,.06);
+  --gridring:rgba(59,180,196,.4);
+  --warn:#e0a54a;
   --font-display:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --font-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  color-scheme:light;
-}
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    --bg:#0f1417; --panel:#151c20; --ink:#dbe4e8; --muted:#8c9aa3; --line:#28333a;
-    --accent:#3bb4c4; --accent-ink:#06191c; --canvas:#0b1013;
-    --gridline:rgba(219,228,232,.06); --gridring:rgba(59,180,196,.4); --warn:#e0a54a;
-    color-scheme:dark;
-  }
-}
-:root[data-theme="dark"]{
-  --bg:#0f1417; --panel:#151c20; --ink:#dbe4e8; --muted:#8c9aa3; --line:#28333a;
-  --accent:#3bb4c4; --accent-ink:#06191c; --canvas:#0b1013;
-  --gridline:rgba(219,228,232,.06); --gridring:rgba(59,180,196,.4); --warn:#e0a54a;
   color-scheme:dark;
+}
+/* the earlier light palette, used only if <html data-theme="light"> is set by hand */
+:root[data-theme="light"]{
+  --bg:#e9edf0; --panel:#f7f9fa; --ink:#172026; --muted:#58656e; --line:#d0d8dd;
+  --accent:#0a6f7d; --accent-ink:#ffffff; --canvas:#dfe5e9;
+  --gridline:rgba(23,32,38,.07); --gridring:rgba(10,111,125,.35); --warn:#9a5b00;
+  color-scheme:light;
 }
 *{box-sizing:border-box}
 [hidden]{display:none !important}
@@ -4122,7 +4116,6 @@ function demoDocs(){
 /* ---------- start ---------- */
 readTheme(); readSettings();
 new ResizeObserver(resize).observe(cv);
-window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { readTheme(); render(); });
 new MutationObserver(() => { readTheme(); render(); }).observe(document.documentElement, {attributes: true, attributeFilter: ["data-theme"]});
 loadDocs(demoDocs(), null);
 renderData();

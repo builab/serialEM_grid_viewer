@@ -303,7 +303,11 @@ class Handler(BaseHTTPRequestHandler):
                                        "write": WRITABLE, "sep": os.sep, "ffmpeg": ffmpeg_path() is not None,
                                        "roots": [{"name": n, "path": r} for n, r in ROOTS.items()]})
             if url.path == "/api/list":
-                return self.api_list(arg("path"), arg("recursive") == "1", ext_filter(arg("ext")))
+                want = ext_filter(arg("ext"))
+                names = {n.strip().lower() for n in arg("names").split(",") if n.strip()}
+                if names:                       # only these file names (used to find tilt series anywhere below a folder)
+                    want = lambda n, _w=want: n.lower() in names and _w(n)
+                return self.api_list(arg("path"), arg("recursive") == "1", want)
             if url.path == "/api/stat":
                 real, api = resolve(arg("path"))
                 if real and os.path.islink(real) and not os.path.isfile(real):

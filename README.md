@@ -83,6 +83,7 @@ Alternatively, if the data is on your local computer, then start on the local co
 - When the page is served by `mdoc_server.py`, Open, Save and Load browse the **server**, not your own computer. A "Pick from this computer instead" link remains in each dialog.
 - The **Data** box shows the server, its shared folders and the folders the open files came from.
 - Each layer card shows its name, visibility, colour and **Show images**. Type, box rotation, piece alignment and sizes are under **More**.
+- **An atlas file with several grid maps** (one montage per section) shows one of them. Pick which with **Grid map** on the layer card; the choice is kept in saved sessions.
 
 ## Aligning
 
@@ -94,8 +95,10 @@ All alignment is done from the **right-click menu** on the map. It lists actions
 |---|---|
 | Square map | Zoom to this square · Align to atlas by dragging · Align to atlas by correlation · Reset atlas offset |
 | Exposure or tilt series | Zoom to this image · Align by dragging · Align by correlation (shift only, or shift + rotation ±5°) · Refine the whole layer by correlation · Reset position · Make acquisition movie (tilt series) |
-| PACEtomo View | Zoom to this View · Align by dragging · Align by correlation (shift only, or shift + rotation ±5°) · Refine targets inside the View · Find new tilt series · Reset alignment |
+| PACEtomo View | Zoom to this View · Align by dragging · Align by correlation (shift only, or shift + rotation ±5°) · Find related tilt series · Make PACEtomo movie · Reset alignment |
 | PACEtomo target | Zoom to this target · Make acquisition movie |
+
+The square-map actions appear only when you right-click the square map itself, not a View, target or image on it.
 
 **Align by dragging** opens an align bar. Drag anywhere on the map to move the item. What moves together:
 
@@ -116,7 +119,7 @@ While aligning, the moving images are drawn at 50 % opacity. Press **D** for a d
 - Opening one `_tgts.txt` also opens its View image, the Preview image at each target, and every tilt series acquired so far. They form one group in the Layers list, with the tilt series nested under it.
 - Each group has its own colour (bright yellow-green by default). Each target is drawn as a circle around its image.
 - **View size:** if the View's pixel size in its mdoc disagrees with the square map, aligning by correlation also fits the View's size. The factor is remembered per magnification and reused for the next group. You can also set it by hand under the group's **More** ("View size ×").
-- **Find new tilt series** picks up tilt series acquired after the file was opened.
+- **Find related tilt series** (right-click the View, or the group's **More**) searches the whole shared folder and its subfolders for the tilt series named in the target file, and opens the ones not open yet. A copy in the target file's own folder is preferred, then the nearest one. It needs the server or a chosen data folder.
 - **Tilt series opened on their own** are recognized by name (the `tsfile` entries in the `_tgts.txt`), whenever and from whichever folder they are opened. They join the group and sit at their target.
 - **A tilt series can be aligned on its own** (right-click it). It keeps its own position and stays part of the group; its target circle follows it.
 
@@ -126,7 +129,7 @@ Click any item to see its details. The short list comes first; the raw mdoc keys
 
 - **Square map and atlas:** file, centre X/Y, box size, image size, pixel size used, box rotation, atlas offset, fitted px → stage.
 - **Exposure, tilt series and View:** the same, plus image shift and specimen shift. Tilt series also show angle from, to and increment.
-- **PACEtomo target** (click inside its circle): target number, position, stage position in the file, specimen shift, Preview and how it matched in the View, and the tilt series with its angle range.
+- **PACEtomo target** (click inside its circle): target number, position, stage position in the file, specimen shift, Preview, and the tilt series with its angle range.
 
 ![Details of a PACEtomo target](docs/images/target-details.png)
 
@@ -157,12 +160,18 @@ For the movie, the square map is rebuilt as one image: every piece is re-read at
 Right-click the View of a PACEtomo area and choose **Make PACEtomo movie…**. The movie goes:
 
 1. Atlas → square map → zoom to the View.
-2. Picking the targets one by one: a box at each tilt series, a circle drawn around it, and its number. After target 1 is picked, the tilt axis is drawn through it as a dashed line (the stage X axis); it can be turned off.
+2. Picking the targets one by one: a box at each tilt series, a circle drawn around it, and its number. After target 1 is picked, the tilt axis is drawn through it as a dashed line (the stage X axis), and the movie pauses on it for one more target's time before target 2; the axis can be turned off.
 3. All tilt series in a grid, stepping through the tilt angles together.
 
-The tilt series stand in for their targets, at their aligned positions. Targets without a tilt series are picked but left out of the grid. The playback uses the same bidirectional order as the acquisition movie (start → lowest → highest → start), not the dose-symmetric acquisition order.
+The tilt series stand in for their targets, at their aligned positions. Targets without a tilt series, or whose tilt-series stack cannot be read (often target 1, the tracking target), are picked but left out of the grid. The playback uses the same bidirectional order as the acquisition movie (start → lowest → highest → start), not the dose-symmetric acquisition order.
 
 The camera shows the View and all targets; **View zoom** (1 = they just fit) zooms in or out from there. The dialog has the same labels, camera, playback and output settings as the acquisition movie. The timing settings are the atlas, the zoom to the square, the square map, the zoom to the View, and the time per target.
+
+Missing files:
+
+- **Atlas or square map without its `.mrc`:** no movie. Hide the atlas layer to start the movie at the square map instead.
+- **View without its `.mrc`:** the movie is still made from the square map; the View box comes from its mdoc and the image is not shown. Aligning the View by correlation needs the image, but aligning by dragging works.
+- **Target Previews missing:** no effect on targets with a tilt series.
 
 ![PACEtomo movie frames](docs/images/pacetomo-movie-preview.png)
 
@@ -187,7 +196,7 @@ The collapsed **Settings** section in the sidebar holds:
 |---|---|
 | Drag | Pan (while aligning: move the item) |
 | Wheel | Zoom |
-| Click | Select and show details; click a square map to zoom into it |
+| Click | Select and show details; click a square map or a PACEtomo View to zoom into it (click again to just select) |
 | Right-click | Menu for the items under the cursor |
 | F or Esc | Full view |
 | D | Toggle difference view for moving images |

@@ -493,7 +493,15 @@ function buildMontage(L, doc){
     groups.get(g).push({sec:s, pc: pc.length >= 2 ? pc : null, st: stagePos(doc, s)});
   }
   const multi = groups.size > 1;
+  // an atlas file can hold several grid maps (one montage per section): only the chosen one is shown
+  let only = null;
+  if(L.type === "atlas" && multi){
+    const keys = [...groups.keys()].sort((a, b) => a - b), pick = (L.montSec || {})[doc.name];
+    only = keys.includes(pick) ? pick : keys[0];
+    (L.montChoices = L.montChoices || []).push({doc: doc.name, secs: keys.map(k => ({g: k, n: groups.get(k).length})), sel: only});
+  }
   for(const [g, list] of groups){
+    if(only != null && g !== only) continue;
     const mont = {name: baseName(doc.name) + (multi ? ` · section ${g}` : ""), items: [], key: `${doc.id}|${g}`, doc, L, g, pieceSecs: list.map(p => p.sec), tiles: []};
     L.montages.push(mont);
     const fit = fitMontage(list.filter(p => p.pc && p.st));
@@ -641,7 +649,7 @@ function buildTilt(L, doc){
 }
 
 function buildLayer(L){
-  L.items = []; L.warn = new Set(); L.montages = []; L.userCalUsed = null;
+  L.items = []; L.warn = new Set(); L.montages = []; L.userCalUsed = null; L.montChoices = [];
   for(const doc of L.docs){
     if(L.type === "atlas" || L.type === "square") buildMontage(L, doc);
     else if(L.type === "tilt") buildTilt(L, doc);
@@ -667,10 +675,9 @@ function buildLayer(L){
       const hit = paceMatch(it); if(!hit) continue;
       it.pace = hit;
       if(it.refined) continue;                     // aligned on its own: keeps its own position, stays in the group
-      const p = paceTargetPos(hit.g, hit.t), pr = hit.g.prev[hit.t.no];
+      const p = paceTargetPos(hit.g, hit.t);
       it.cx = p[0]; it.cy = p[1];
-      if(pr && pr.ok){ it.rot = pr.rot; it.flip = hit.g.flip; }
-      else if(hit.g.anchored){ it.rot = paceRot(hit.g); it.flip = hit.g.flip; }
+      if(hit.g.anchored){ it.rot = paceRot(hit.g); it.flip = hit.g.flip; }
     }
   }
 }
@@ -1462,7 +1469,7 @@ async function alignMontage(mont, ents){
 
 function imgControls(L){
   const dis = canLoad(L) ? "" : "disabled";
-  let h = `<label class="lcheck full" for="im${L.id}"><input type="checkbox" id="im${L.id}" data-act="img" ${L.loadImages?"checked":""} ${dis}> Show images</label>`;
+  let h = (L.montChoices || []).map(c => `<label class="full" title="This atlas file holds ${c.secs.length} montages; one is shown">Grid map (${esc(c.doc.split("/").pop())})<select data-act="montsec" data-doc="${esc(c.doc)}">${c.secs.map(x => `<option value="${x.g}" ${x.g === c.sel ? "selected" : ""}>Section ${x.g} · ${x.n} pieces</option>`).join("")}</select></label>`).join("") + `<label class="lcheck full" for="im${L.id}"><input type="checkbox" id="im${L.id}" data-act="img" ${L.loadImages?"checked":""} ${dis}> Show images</label>`;
   if(L.loadImages && L.type === "square" && L.montages.length > 1) h += `<button class="btn small full" data-act="imgall">Load all ${L.montages.length} montages</button>`;
   h += `<div class="limg" id="limg${L.id}">${imgStatusText(L)}</div>`;
   return h;
@@ -2160,15 +2167,15 @@ function openCtxMenu(p){
     const tg = isImgItem(it) ? null : paceTargetHit(...p);
     if(tg) groups.push({hd: `Target ${tg.t.no} · ${tg.g.root || tg.g.name}`, items: [
       ["Zoom to this target", () => { state.paceSel = tg.g; state.paceTgt = tg; state.selected = null; showInspector(); setFocus(null); const q = paceTargetPos(tg.g, tg.t), pv = tg.g.previews[tg.t.no], d = pv ? Math.max(pv.w, pv.h) : 1; animateTo(viewFor([{cx: q[0], cy: q[1], w: d, h: d, rot: 0}], 0.4)); renderPace(); }],
-      ...(() => { const ts = state.layers.flatMap(L => L.items).find(x => x.pace && x.pace.g === tg.g && x.pace.t === tg.t && x.L.type === "tilt"); return ts ? [["Make acquisition movie…", () => mvOpen(ts)]] : []; })()]});
+      ...(() => { const ts = state.layers.flatMap(L => L.items).find(x => x.pace && x.pace.g === tg.g && x.pace.t === tg.t && x.L.type === "tilt"); return ts ? [["Make acquisition movie…", () => mvOpen(ts)]] : []; })(),
+      ...(pg ? [] : [["Make PACEtomo movie…", () => mvOpenPace(tg.g)]])]});       // offered under the View when the View is there
     if(pg) groups.push({hd: `View · ${pg.root || pg.name}`, items: [
-      ["Zoom to this View", () => { state.paceSel = pg; state.paceTgt = null; state.selected = null; showInspector(); setFocus(null); animateTo(viewFor([paceViewBox(pg)], 0.5)); renderPace(); }],
+      ["Zoom to this View", () => zoomView(pg)],
       ["Align by dragging…", () => startAlign({kind: "pace", g: pg})],
-      ["Align by correlation (shift only)", () => anchorPace(pg, false), !pg.view || pg.busy],
-      [`Align by correlation (shift + rotation ±${ROT_SPAN}°)`, () => anchorPace(pg, true), !pg.view || pg.busy],
-      ["Refine targets inside the View", () => refinePace(pg), !pg.view || pg.busy],
-      ["Find new tilt series", () => openPaceTS(pg)],
-      ["Make PACEtomo movie…", () => mvOpenPace(pg), !pg.view],
+      ["Align by correlation (shift only)", () => anchorPace(pg, false), !pg.view || !!pg.view.noImage || pg.busy, "Needs the View image"],
+      [`Align by correlation (shift + rotation ±${ROT_SPAN}°)`, () => anchorPace(pg, true), !pg.view || !!pg.view.noImage || pg.busy, "Needs the View image"],
+      ["Find related tilt series", () => openPaceTS(pg), pg.kind === "file", "Needs the server or a chosen data folder"],
+      ["Make PACEtomo movie…", () => mvOpenPace(pg)],
       ["Reset alignment", () => resetPace(pg), pg.busy]]});
     if(isImgItem(it)) groups.push({hd: `${it.L.type === "tilt" ? "Tilt series" : "Exposure"} · ${it.label}`, items: [
       ["Zoom to this image", () => zoomItem(it)],
@@ -2178,7 +2185,7 @@ function openCtxMenu(p){
       ...(it.L.type === "tilt" ? [["Make acquisition movie…", () => { pick(it); mvOpen(it); }]] : []),
       ["Refine the whole layer by correlation…", () => openRefine(it.L)],
       ["Reset position", () => { pick(it); resetSelected(); }, !REFINED[refKey(it)]]]});
-    if(sq && sq.montage) groups.push({hd: `Square map · ${sq.montage.name}`, items: [
+    if(sq && sq.montage && !pg && !tg && !isImgItem(it)) groups.push({hd: `Square map · ${sq.montage.name}`, items: [
       ["Zoom to this square", () => { state.selected = sq; state.paceSel = null; showInspector(); focusMontage(sq.montage); }],
       ["Align to atlas by dragging…", () => startAlign({kind: "offset", m: sq.montage}), !hasAtlas, noAtlas],
       ["Align to atlas by correlation", () => alignOffset(sq.montage), !hasAtlas, noAtlas],
@@ -2216,7 +2223,7 @@ try { VSCALE = JSON.parse(localStorage.getItem(VSCALE_KEY) || "{}") || {}; } cat
 let paceSeq = 0;
 function savePaceStore(){ try { localStorage.setItem(PACE_KEY, JSON.stringify(PACESTORE)); } catch(e){} }
 function savePace(g){
-  PACESTORE[g.key] = {color: g.color, delta: g.delta, rot: g.rot, rotSet: !!g.rotSet, flip: g.flip, scale: g.scale, anchored: g.anchored, score: g.score, prev: g.prev, date: new Date().toLocaleString()};
+  PACESTORE[g.key] = {color: g.color, delta: g.delta, rot: g.rot, rotSet: !!g.rotSet, flip: g.flip, scale: g.scale, anchored: g.anchored, score: g.score, date: new Date().toLocaleString()};
   savePaceStore();
 }
 function parseTgts(text){
@@ -2252,7 +2259,14 @@ async function imageDoc(kind, dir, mrcName){
   const mdocName = mrcName + ".mdoc", txt = await readSibling(kind, dir, mdocName);
   const doc = parseMdoc(txt || "", dir + mdocName);
   doc.src = {kind, path: dir + mdocName}; doc.synthetic = !txt;
-  const h = await getHeader(doc);
+  let h;
+  try { h = await getHeader(doc); }
+  catch(e){
+    // no image file: the mdoc alone still gives the size and pixel size, so the box can be placed
+    const s0 = imageSections(doc)[0], px0 = s0 ? num(get(doc, s0, "PixelSpacing")) : NaN, sz0 = s0 ? imageSize(doc, s0) : null;
+    if(txt && px0 > 0 && sz0) return {doc, sec: s0, px: px0/1e4, w: sz0[0]*px0/1e4, h: sz0[1]*px0/1e4, canvas: null, noImage: e.message};
+    throw e;
+  }
   let sec = imageSections(doc)[0];
   if(!sec){ sec = {kind: "ZValue", index: "0", kv: {}}; doc.sections.push(sec); }
   if(!(num(get(doc, sec, "PixelSpacing")) > 0)){
@@ -2279,7 +2293,7 @@ async function openPace(kind, path, text){
   const sv = PACESTORE[key] || {};
   const g = {id: ++paceSeq, key, kind, path, dir: dirOf(path), name: file.replace(/\.txt$/i, ""), root, settings: t.settings, targets,
     viewfile: targets[0].viewfile || `${root}_tgt_001_view.mrc`, view: null, previews: {}, visible: true, showImg: true,
-    color: /^#[0-9a-f]{6}$/i.test(sv.color || "") ? sv.color : PACE_COLOR, delta: sv.delta || [0, 0], scale: sv.scale > 0 ? sv.scale : 1, scaleKnown: sv.scale > 0, rot: sv.rot ?? null, rotSet: !!sv.rotSet, flip: sv.flip || 1, anchored: !!sv.anchored, score: sv.score ?? null, prev: sv.prev || {},
+    color: /^#[0-9a-f]{6}$/i.test(sv.color || "") ? sv.color : PACE_COLOR, delta: sv.delta || [0, 0], scale: sv.scale > 0 ? sv.scale : 1, scaleKnown: sv.scale > 0, rot: sv.rot ?? null, rotSet: !!sv.rotSet, flip: sv.flip || 1, anchored: !!sv.anchored, score: sv.score ?? null,
     status: sv.anchored ? `Alignment restored (${sv.date || "earlier"}).` : "Not aligned yet: positions are SerialEM's nominal stage positions.", err: "", busy: false};
   const missing = targets.filter(x => !x.stage).length;
   if(missing) g.err = `${missing} target${missing === 1 ? "" : "s"} without stageX/stageY are not shown.`;
@@ -2328,10 +2342,11 @@ async function loadPacePreviews(g){
 async function loadPaceView(g){
   try {
     g.view = await imageDoc(g.kind, g.dir, g.viewfile);
+    if(g.view.noImage){ g.err = `View image ${g.viewfile}: ${g.view.noImage} The View is placed from its mdoc, without the image.`; renderPace(); render(); return; }
     const learned = VSCALE[magKey(g.view.doc, g.view.sec)];
     if(!g.scaleKnown && learned > 0 && learned !== 1){ g.scale = learned; g.status += ` View size ×${learned} reused from an earlier group at this magnification.`; }
     g.view.canvas = (await imageAt(g.view.doc, g.view.sec, Math.max(g.view.px, Math.max(g.view.w, g.view.h)/1200))).canvas;
-  } catch(e){ g.view = g.view && g.view.canvas ? g.view : null; g.err = `View image ${g.viewfile}: ${e.message}`; }
+  } catch(e){ g.view = g.view && (g.view.canvas || g.view.noImage) ? g.view : null; g.err = `View image ${g.viewfile}: ${e.message}`; }
   renderPace(); render();
 }
 const paceOff = () => { const o = state.settings.offset; return o.on ? [o.x, o.y] : [0, 0]; };
@@ -2341,9 +2356,9 @@ function paceRot(g){
   return 0;
 }
 function paceViewCenter(g){ const s = g.targets[0].stage, o = paceOff(); return [s[0] + g.delta[0] + o[0], s[1] + g.delta[1] + o[1]]; }
-function paceTargetPos(g, t, raw){
-  const o = paceOff(), p = !raw && g.prev[t.no] && g.prev[t.no].ok ? g.prev[t.no].d : [0, 0];
-  return [t.stage[0] + g.delta[0] + o[0] + p[0], t.stage[1] + g.delta[1] + o[1] + p[1]];
+function paceTargetPos(g, t){
+  const o = paceOff();
+  return [t.stage[0] + g.delta[0] + o[0], t.stage[1] + g.delta[1] + o[1]];
 }
 const paceViewBox = g => { const c = paceViewCenter(g); return {cx: c[0], cy: c[1], w: g.view.w*g.scale, h: g.view.h*g.scale, rot: paceRot(g), flip: g.flip}; };
 function paceMatch(it){
@@ -2374,6 +2389,12 @@ function paceTargetHit(sx, sy){
   }
   return best;
 }
+// zoom to a PACEtomo View, select it (the same for a click on the View and for its menu item)
+function zoomView(g){
+  state.paceSel = g; state.paceTgt = null; state.selected = null; showInspector();
+  setFocus(null); state.viewFocus = g.key;
+  animateTo(viewFor([paceViewBox(g)], 0.5)); renderPace();
+}
 function zoomPace(g){
   const pts = g.targets.filter(t => t.stage).map(t => { const p = paceTargetPos(g, t); return {cx: p[0], cy: p[1], w: 0.5, h: 0.5, rot: 0}; });
   if(g.view) pts.push(paceViewBox(g));
@@ -2381,7 +2402,7 @@ function zoomPace(g){
 }
 async function anchorPace(g, rotOn){
   if(g.busy) return;
-  if(!g.view){ g.status = "The View image is not loaded, so the area cannot be anchored. Place it by dragging instead."; renderPace(); return; }
+  if(!g.view || g.view.noImage){ g.status = "The View image is not loaded, so the area cannot be aligned by correlation. Align it by dragging instead."; renderPace(); return; }
   const rotate = useRot(rotOn);
   g.busy = true; g.status = `Matching the View image to the square map (${howTxt(rotate)})…`; renderPace();
   try {
@@ -2402,58 +2423,49 @@ async function anchorPace(g, rotOn){
   g.busy = false; rebuildKeepFocus(); renderPace();
 }
 // match each tgt_00N.mrc Preview inside the anchored View image
-async function refinePace(g, rotOn){
-  if(g.busy) return;
-  const rotate = useRot(rotOn);
-  if(!g.view){ g.status = "The View image is not loaded."; renderPace(); return; }
-  const todo = g.targets.filter(t => t.tgtfile && t.stage);
-  if(!todo.length){ g.status = "This target file names no tgt_00N.mrc Preview images (target pattern), so there is nothing to refine."; renderPace(); return; }
-  g.busy = true; renderPace();
-  const vb = paceViewBox(g); let ok = 0, outside = 0, failed = 0;
-  for(let i = 0; i < todo.length; i++){
-    const t = todo[i];
-    g.status = `Matching Preview ${i + 1} of ${todo.length}…`; renderPace();
-    try {
-      if(!g.previews[t.no]) g.previews[t.no] = await imageDoc(g.kind, g.dir, t.tgtfile);
-      const pv = g.previews[t.no];
-      if(!pv.canvas) pv.canvas = (await imageAt(pv.doc, pv.sec, Math.max(pv.px, Math.max(pv.w, pv.h)/600))).canvas;
-      const [sx, sy] = paceTargetPos(g, t, true);
-      if(!insideBox(sx, sy, vb)){ outside++; delete g.prev[t.no]; continue; }
-      const hw = Math.hypot(pv.w, pv.h)/2;
-      const fixedAt = async res => ({...vb, canvas: (await imageAt(g.view.doc, g.view.sec, res/g.scale)).canvas});
-      const movAt = async (res, cx, cy) => ({canvas: (await imageAt(pv.doc, pv.sec, res)).canvas, cx, cy, w: pv.w, h: pv.h, flip: g.flip});
-      const m1 = Math.min(2, Math.max(0.4, 1.5*Math.max(pv.w, pv.h)));
-      const R1 = [sx-hw-m1, sx+hw+m1, sy-hw-m1, sy+hw+m1];
-      const vpx = g.view.px*g.scale, r1 = Math.max(vpx, pv.px, (R1[1]-R1[0])/400);
-      const angles = rotAngles(vb.rot, rotate, 1.25);
-      const c1 = await matchRegion([await fixedAt(r1)], await movAt(r1, sx, sy), R1, r1, angles, Math.round(m1/r1), Math.max(2, Math.round(2*hw/r1/25)));
-      const fx = sx + c1.dx, fy = sy + c1.dy, m2 = Math.max(0.05, Math.min(0.3, 4*r1 + 0.1*Math.max(pv.w, pv.h)));
-      const R2 = [fx-hw-m2, fx+hw+m2, fy-hw-m2, fy+hw+m2];
-      const r2 = Math.max(vpx, pv.px, (R2[1]-R2[0])/400);
-      const c2 = await matchRegion([await fixedAt(r2)], await movAt(r2, fx, fy), R2, r2, rotate ? [-0.6, 0, 0.6].map(d => c1.rot + d) : [c1.rot], Math.round(m2/r2), Math.max(2, Math.round(2*hw/r2/25)));
-      const score = Math.min(c1.score, c2.score);
-      g.prev[t.no] = {d: [c1.dx + c2.dx, c1.dy + c2.dy], rot: c2.rot, score, ok: score > 0.2};
-      if(score > 0.2) ok++; else failed++;
-    } catch(e){ failed++; g.prev[t.no] = {d: [0, 0], rot: vb.rot, score: 0, ok: false, err: e.message}; }
-  }
-  g.status = `Previews (${howTxt(rotate)}): ${ok} matched in the View, ${failed} not matched${outside ? `, ${outside} outside the View (kept at the anchored position)` : ""}.`;
-  g.busy = false; savePace(g); rebuildKeepFocus(); renderPace();
-}
 function resetPace(g){
-  Object.assign(g, {delta: [0, 0], scale: 1, scaleKnown: true, rot: null, rotSet: false, flip: 1, anchored: false, score: null, prev: {}, status: "Reset to SerialEM's nominal stage positions."});
+  Object.assign(g, {delta: [0, 0], scale: 1, scaleKnown: true, rot: null, rotSet: false, flip: 1, anchored: false, score: null, status: "Reset to SerialEM's nominal stage positions."});
   savePace(g);       // keeps the group's colour
   rebuildKeepFocus(); renderPace();
 }
-function openPaceTS(g){
-  const names = g.targets.filter(t => t.tsfile).map(t => t.tsfile + ".mdoc");
-  if(!names.length){ g.status = "No tsfile names in this target file."; renderPace(); return; }
-  if(g.kind === "file"){ g.status = `Select the tilt series mdoc files (${names.slice(0, 2).join(", ")}…) together with the _tgts.txt, or run the viewer from mdoc_server.py.`; renderPace(); return; }
-  openPaceGroup(g, true).then(() => loadPacePreviews(g));
+// Find related tilt series: every tilt series named in the target file, searched for in the whole shared folder
+// (or chosen data folder) and its subfolders. The same folder as the target file wins, then the nearest one.
+async function openPaceTS(g){
+  const want = new Map();
+  for(const t of g.targets) if(t.tsfile) want.set((t.tsfile + ".mdoc").toLowerCase(), t);
+  if(!want.size){ g.status = "No tsfile names in this target file."; renderPace(); return; }
+  if(g.kind === "file"){ g.status = "Searching needs the server, or a data folder chosen with Choose data folder. Otherwise select the tilt series with Open…."; renderPace(); return; }
+  const linked = new Set(state.layers.flatMap(L => L.items).filter(it => it.pace && it.pace.g === g && it.L.type === "tilt").map(it => it.pace.t));
+  const missing = [...want].filter(([, t]) => !linked.has(t));
+  const root = g.kind === "server" ? g.dir.split("/")[0] : (data.folder ? data.folder.name : "");
+  if(!missing.length){ g.status = `All ${want.size} tilt series named in the target file are open.`; renderPace(); return; }
+  g.status = `Searching ${root} and its subfolders for ${missing.length} tilt series…`; renderPace();
+  let found = [];
+  try {
+    if(g.kind === "server"){
+      const names = missing.map(([n]) => n).join(",");
+      const r = await fetch(`api/list?path=${encodeURIComponent(root)}&recursive=1&ext=mdoc&names=${encodeURIComponent(names)}`, {cache: "no-store"});
+      const j = await r.json(); if(!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      found = j.files.map(f => f.path);
+    } else if(data.folder) found = [...data.folder.files.keys()];
+  } catch(e){ g.status = `Search failed: ${e.message}`; renderPace(); return; }
+  const depth = p => p.split("/").length, near = p => (dirOf(p) === g.dir ? 0 : 1)*1e6 + Math.abs(depth(p) - depth(g.dir + "x")) * 1e3 + p.length;
+  const pick = new Map();
+  for(const p of found){
+    const n = p.split("/").pop().toLowerCase(); if(!want.has(n) || linked.has(want.get(n))) continue;
+    if(!pick.has(n) || near(p) < near(pick.get(n))) pick.set(n, p);
+  }
+  const opened = openedPaths(), list = [...pick.values()].filter(p => !opened.has(`${g.kind}:${p}`));
+  if(list.length) await openPaths(list.map(path => ({kind: g.kind, path})), "tilt", {layer: `${g.root || g.name} · tilt series`, paceKey: g.key, quiet: true});
+  const now = new Set(state.layers.flatMap(L => L.items).filter(it => it.pace && it.pace.g === g && it.L.type === "tilt").map(it => it.pace.t)).size;
+  const elsewhere = list.filter(p => dirOf(p) !== g.dir).length;
+  g.tsNote = `${now} of ${want.size} tilt series open.`;
+  g.status = list.length ? `Found ${list.length} more tilt series in ${root}${elsewhere ? ` (${elsewhere} in other folders)` : ""}. ${g.tsNote}` : `No more tilt series found in ${root} and its subfolders. ${g.tsNote}`;
+  rebuildKeepFocus(); renderPace(); loadPacePreviews(g);
 }
 const renderPace = () => renderLayers();
 function paceCard(g){
   const n = g.targets.length, placed = state.layers.reduce((a, L) => a + L.items.filter(it => it.pace && it.pace.g === g).length, 0);
-  const nprev = Object.values(g.prev).filter(p => p.ok).length;
   const vsz = g.view && imageSize(g.view.doc, g.view.sec);
   const view = g.view ? `${g.viewfile} · ${vsz ? `${vsz[0]}×${vsz[1]} px · ` : ""}${+(g.view.px*1e4).toPrecision(4)} Å/px (${g.view.doc.synthetic ? "MRC header" : "mdoc"}) → ${fmtLen(g.view.w*g.scale)} × ${fmtLen(g.view.h*g.scale)}${g.scale !== 1 ? ` (resized ×${g.scale})` : ""}` : (g.err ? "" : `${g.viewfile} · loading…`);
   const sel = state.paceSel === g ? ` style="border-color:${g.color}"` : "";
@@ -2467,13 +2479,13 @@ function paceCard(g){
     </div>
     <div class="layer-ctl">
       <label class="lcheck full"><input type="checkbox" data-pact="img" ${g.showImg ? "checked" : ""}> Show the View and Preview images</label>
-      <div class="limg">${esc(g.status)}${nprev ? ` ${nprev} Preview${nprev === 1 ? "" : "s"} matched.` : ""}</div>
+      <div class="limg">${esc(g.status)}</div>
       ${g.err ? `<div class="lwarn">${esc(g.err)}</div>` : ""}
       <details class="more" data-more="p${g.id}" ${g.more ? "open" : ""}><summary>More</summary><div class="layer-ctl">
         ${view ? `<div class="lsize">${esc(view)}</div>` : ""}
         <label class="lcheck full" title="1 = the size from the View's pixel size. Aligning by correlation changes it when another size fits the square map clearly better.">View size ×<input type="number" data-pact="scale" step="0.005" min="0.2" max="5" value="${g.scale}" style="width:76px;margin-left:6px"></label>
         <div class="limg">${g.tsNote ? esc(g.tsNote) + " " : ""}${placed} placed at their targets.${g.anchored ? ` Offset ${g.delta[0].toFixed(2)}, ${g.delta[1].toFixed(2)} µm.` : ""}</div>
-        <div class="prow"><button class="btn small" data-pact="ts" title="Looks again for tilt series acquired since the file was opened">Find new tilt series</button></div>
+        <div class="prow"><button class="btn small" data-pact="ts" title="Searches the whole shared folder and its subfolders for the tilt series named in the target file" ${g.kind === "file" ? "disabled" : ""}>Find related tilt series</button></div>
       </div></details>
     </div></div>`;
 }
@@ -2529,15 +2541,14 @@ function drawPace(){
     for(const t of g.targets){
       t.hit = null;
       if(!t.stage) continue;
-      const p = paceTargetPos(g, t), pv = g.previews[t.no], pr = g.prev[t.no], ts = tsAt.get(t);
-      if(g.showImg && pv && pv.canvas){ if(ghostPace(g)) ghostOn(); drawTile({tile: pv.canvas}, {cx: p[0], cy: p[1], w: pv.w, h: pv.h, rot: pr && pr.ok ? pr.rot : paceRot(g), flip: g.flip}, s); ghostOff(); }
+      const p = paceTargetPos(g, t), pv = g.previews[t.no], ts = tsAt.get(t);
+      if(g.showImg && pv && pv.canvas){ if(ghostPace(g)) ghostOn(); drawTile({tile: pv.canvas}, {cx: p[0], cy: p[1], w: pv.w, h: pv.h, rot: paceRot(g), flip: g.flip}, s); ghostOff(); }
       // the circle goes around the image at the target: half its diagonal, never smaller than a visible dot
       const diag = Math.max(pv && pv.canvas ? Math.hypot(pv.w, pv.h) : 0, ts ? Math.hypot(ts.w, ts.h) : 0);
       const [x, y] = toScreen(...(ts && ts.refined ? [ts.cx, ts.cy] : p)), r = Math.max(5, diag > 0 ? diag/2*s + 2 : Math.min(14, 0.3*s));
       t.hit = {x, y, r};
       ctx.strokeStyle = g.color; ctx.lineWidth = state.paceTgt && state.paceTgt.t === t ? 3 : 1.5; ctx.setLineDash(t.skip ? [2, 2] : []);
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
-      if(pr && pr.ok){ const c = Math.min(6, r*0.6); ctx.beginPath(); ctx.moveTo(x - c, y); ctx.lineTo(x + c, y); ctx.moveTo(x, y - c); ctx.lineTo(x, y + c); ctx.stroke(); }
       if(state.settings.showLabels && s > 2){
         ctx.font = `600 11px ${getFont("--font-mono")}`; ctx.fillStyle = g.color; ctx.textAlign = "left"; ctx.textBaseline = "middle";
         ctx.fillText(String(Number(t.no) || t.no), x + r*0.71 + 4, y - r*0.71 - 4);
@@ -2552,7 +2563,7 @@ function drawPace(){
 const MV_KEY = "mdocStageMap.movie";
 const MV_DEF = {size: "1920x1080", fps: 30, zoom: 6, tAtlas: 3, tToSq: 4, tSq: 2, tToTg: 4, hold: 3, tToView: 3, tPick: 0.8, viewZoom: 1, tiltAxis: true, tiltFps: 10, schematic: true, upright: true, level: true, turn: 0, first: "low",
   labels: [["Atlas", "Grid overview"], ["Square map", "Selecting the acquisition position"], ["Acquisition position", "Tilt-series target"], ["Tilt series", ""]],
-  pLabels: [["Atlas", "Grid overview"], ["Square map", "Selecting the area"], ["Target selection", ""], ["Parallel Tilt Series Acquisition", ""]]};
+  pLabels: [["Atlas", "Grid overview"], ["Square map", "Selecting the area"], ["Target Selection", "Anchoring view"], ["Tilt Series Acquisition", "Parallel off-axis acquisition"]]};
 let mv = null;
 const mvEase = t => { t = Math.max(0, Math.min(1, t)); return t*t*(3 - 2*t); };
 const mvPt = (cam, x, y) => { const c = Math.cos(cam.f), sn = Math.sin(cam.f), dx = (x - cam.x)*cam.s, dy = ys()*(y - cam.y)*cam.s; return [cam.W/2 + dx*c + dy*sn, cam.H/2 - dx*sn + dy*c]; };
@@ -2562,7 +2573,9 @@ function mvCfg(){
   const c = {...MV_DEF, ...sv};
   const labs = (key) => MV_DEF[key].map((d, i) => Array.isArray(sv[key] && sv[key][i]) ? [String(sv[key][i][0] ?? d[0]), String(sv[key][i][1] ?? d[1])] : d.slice());
   c.labels = labs("labels"); c.pLabels = labs("pLabels");
-  if(c.pLabels[3][0] === "Tilt series") c.pLabels[3][0] = MV_DEF.pLabels[3][0];      // the earlier default
+  // labels still at an earlier default take the current one; labels you typed are kept
+  const oldDef = [[["Target selection", ""]], [["Tilt series", ""], ["Parallel Tilt Series Acquisition", ""]]];
+  [2, 3].forEach((i, j) => { if(oldDef[j].some(([a, b]) => c.pLabels[i][0] === a && c.pLabels[i][1] === b)) c.pLabels[i] = MV_DEF.pLabels[i].slice(); });
   return c;
 }
 function mvSaveCfg(){ const {start, low, high, zoom, tToTg, ...keep} = mv.cfg; try { localStorage.setItem(MV_KEY, JSON.stringify(keep)); } catch(e){} }
@@ -2677,11 +2690,17 @@ function mvFrameBox(tiles){        // the box around tiles, in their own (shared
   return {cx: o.cx + um*c0 - vm*s0, cy: o.cy + um*s0 + vm*c0, w: u1 - u0, h: v1 - v0, rot: o.rot};
 }
 async function mvPrepare(){
-  const self = mv, it = mv.kind === "pace" ? paceViewBox(mv.grp) : mv.it;
+  const self = mv, it = mv.kind === "pace" ? mv.areaBox : mv.it;
   const sq = squareFor(it.cx, it.cy);
   if(!sq) throw new Error(`no square map under this ${mv.kind === "pace" ? "View" : "tilt series"}. Open the square map and its .mrc first.`);
-  const atlasL = state.layers.find(L => L.type === "atlas" && L.visible && canLoad(L));
-  if(atlasL){ if(!atlasL.loadImages){ atlasL.loadImages = true; renderLayers(); } await Promise.all(atlasL.montages.map(m => ensureMontage(atlasL, m))); }
+  const atlasL = state.layers.find(L => L.type === "atlas" && L.visible);
+  const noAtlas = "Open the atlas together with its .mrc, or hide the atlas layer to start the movie at the square map.";
+  if(atlasL){
+    if(!canLoad(atlasL)) throw new Error(`the atlas images (.mrc) are not available. ${noAtlas}`);
+    if(!atlasL.loadImages){ atlasL.loadImages = true; renderLayers(); }
+    try { await Promise.all(atlasL.montages.map(m => ensureMontage(atlasL, m))); } catch(e){}
+    if(!atlasL.montages.some(m => m.tiles.some(t => imgCache.has(t.key)))) throw new Error(`the atlas images could not be read. ${noAtlas}`);
+  }
   const {parts} = await squareParts(sq.L, sq.m.key);            // loads the montage
   const m = sq.L.montages.find(x => x.key === sq.m.key) || sq.m;
   self.atlasTiles = atlasL ? atlasL.montages.flatMap(x => x.tiles).filter(t => imgCache.has(t.key)) : [];
@@ -3122,7 +3141,7 @@ $("#mvOut").addEventListener("click", async e => {
 /* ---------- PACEtomo movie: atlas -> square map -> View -> picking each target -> all tilt series in step ---------- */
 // The tilt series opened for the targets replace the targets: their (aligned) positions and images are used.
 async function mvOpenPace(g){
-  if(!g || !g.view || !g.view.doc) return setMsg("The View image of this PACEtomo area is not loaded, so the movie cannot be made.");
+  if(!g) return;
   if(mv && mv.busy) return;
   const dlg = $("#mvDlg");
   mv = {kind: "pace", grp: g, cfg: mvCfg(), t: 0, ready: false, timg: new Map(), loading: new Set(), canvas: $("#mvCanvas"), lastImg: []};
@@ -3133,9 +3152,12 @@ async function mvOpenPace(g){
   mvForm(); mvEncoderNote(); if(!dlg.open) dlg.showModal();
   mvSay("Loading the atlas, the square map and the View…");
   try {
-    await mvPrepare(); await mvPacePrepare(); mv.ready = true; mvPlan();
-    const nts = mv.tg.filter(x => x.tilts).length;
-    mvSay(nts ? "" : "None of the targets has a tilt series open yet, so the movie ends after the targets are picked. Open the tilt series and reopen this dialog.", !nts);
+    await mvPrepare(); const noStack = await mvPaceStacks(); await mvPacePrepare(); mv.ready = true; mvPlan();
+    const nts = mv.tg.filter(x => x.tilts).length, notes = [];
+    if(noStack.length) notes.push(`No image stack for target${noStack.length === 1 ? "" : "s"} ${noStack.join(", ")}: picked, but left out of the parallel tilt series.`);
+    if(!mv.viewImg) notes.push(mv.grp.view ? "The View image is not available, so the View is not shown; the square map is used instead." : "No View for this area, so the camera frames the targets on the square map.");
+    if(!nts) notes.push("None of the targets has a tilt series with images, so the movie ends after the targets are picked.");
+    mvSay(notes.join(" "), !nts);
     mvShow(mv.plan.tP + 0.4);
   } catch(e){ mvSay(`Cannot make the movie: ${e.message}`, true); }
 }
@@ -3149,6 +3171,24 @@ function mvPaceTargets(){
     const tilts = ts ? mvTilts(ts.doc) : null;
     return {i, t, no: Number(t.no) || t.no, ts, box, tilts: tilts && tilts.secs.length ? tilts : null};
   });
+  mvPaceAngles();
+  mv.areaBox = mvPaceArea(g);
+}
+// the View box, or (without a View) a box around the targets
+function mvPaceArea(g){
+  if(g.view) return paceViewBox(g);
+  const b = mv.tg.map(x => x.box), x0 = Math.min(...b.map(q => q.cx - q.w)), x1 = Math.max(...b.map(q => q.cx + q.w)), y0 = Math.min(...b.map(q => q.cy - q.h)), y1 = Math.max(...b.map(q => q.cy + q.h));
+  return {cx: (x0 + x1)/2, cy: (y0 + y1)/2, w: Math.max(4, (x1 - x0)*1.2), h: Math.max(4, (y1 - y0)*1.2), rot: paceRot(g), flip: g.flip || 1};
+}
+// a tilt series whose image stack cannot be read is treated like a target without one (usually target 1, the tracking target)
+async function mvPaceStacks(){
+  const miss = [];
+  for(const x of mv.tg){ if(!x.tilts) continue; try { await getHeader(x.ts.doc); } catch(e){ x.tilts = null; x.noStack = e.message; miss.push(x.no); } }
+  if(miss.length){ mvPaceAngles(); mv.seq = mvSeq(); }
+  return miss;
+}
+function mvPaceAngles(){
+  const c = mv.cfg;
   // one list of angles for all targets (angles within 0.75° are the same step)
   const withTs = mv.tg.filter(x => x.tilts), all = [...new Set(withTs.flatMap(x => x.tilts.secs.map(s => Math.round(s.a*10)/10)))].sort((a, b) => a - b), merged = [];
   for(const a of all) if(!merged.length || a - merged[merged.length - 1] > 0.75) merged.push(a);
@@ -3156,10 +3196,14 @@ function mvPaceTargets(){
   if(merged.length) Object.assign(c, {start: Math.round(mv.tilts.start), low: Math.floor(merged[0]), high: Math.ceil(merged[merged.length - 1])});
 }
 async function mvPacePrepare(){
-  const g = mv.grp, v = g.view, b = paceViewBox(g);
+  const g = mv.grp, v = g.view;
+  mv.viewImg = null;
+  if(!v || v.noImage) return;                      // no View image: the square map shows the area
   mvSay("Reading the View image…");
-  const res = Math.max(v.px, Math.max(v.w, v.h)/3072);
-  mv.viewImg = {img: (await imageAt(v.doc, v.sec, res)).canvas, cx: b.cx, cy: b.cy, w: b.w, h: b.h, rot: b.rot, flip: b.flip || 1};
+  try {
+    const b = paceViewBox(g), res = Math.max(v.px, Math.max(v.w, v.h)/3072);
+    mv.viewImg = {img: (await imageAt(v.doc, v.sec, res)).canvas, cx: b.cx, cy: b.cy, w: b.w, h: b.h, rot: b.rot, flip: b.flip || 1};
+  } catch(e){ mv.viewImg = null; }
 }
 // for each step of the playback, the section of each target's tilt series at that angle (or the last one shown)
 function mvPaceSteps(){
@@ -3175,7 +3219,7 @@ function mvPaceSteps(){
   }
 }
 function mvPlanPace(B){
-  const {MW, MH, k, f0, fEnd, full, zSq, TB, TS, hasAtlas, sq, cam0} = B, c = mv.cfg, vb = mv.viewImg;
+  const {MW, MH, k, f0, fEnd, full, zSq, TB, TS, hasAtlas, sq, cam0} = B, c = mv.cfg, vb = mv.viewImg || mv.areaBox;
   // the View and every target circle fit in the frame (below the title); View zoom scales that
   const cf = {...cam0, f: fEnd}, Pv = mvCorners(vb).map(p => mvPt(cf, p[0], p[1]));
   for(const x of mv.tg){ const [sx, sy] = mvPt(cf, x.box.cx, x.box.cy), r = Math.hypot(x.box.w, x.box.h)/2*1.25; Pv.push([sx - r, sy - r], [sx + r, sy + r]); }
@@ -3205,9 +3249,9 @@ function mvPlanPace(B){
   }
   mv.seq = mvSeq(); mvPaceSteps();
   const TV = Math.max(0.5, c.tToView), TP = Math.max(0.2, c.tPick);
-  const tB = hasAtlas ? Math.max(0.5, c.tAtlas) : 0, tC = hasAtlas ? tB + TB : 0, tD = tC + TS, tE = tD + TV, tF = tE + 1.2, tP = tF + mv.tg.length*TP, tG = tP + 1.0, tH = n ? tG + 1.8 : tG;
+  const tB = hasAtlas ? Math.max(0.5, c.tAtlas) : 0, tC = hasAtlas ? tB + TB : 0, tD = tC + TS, tE = tD + TV, tF = tE + 1.2, axisSlot = c.tiltAxis && mv.tg.length ? 1 : 0, tP = tF + (mv.tg.length + axisSlot)*TP, tG = tP + 1.0, tH = n ? tG + 1.8 : tG;
   const total = tH + (n ? mv.seq.length/Math.max(1, c.tiltFps) + 1.5 : 0.5);
-  mv.plan = {kind: "pace", MW, MH, k, f0, fEnd, full, sqC: [sq.cx, sq.cy], zSq, TB, TS, TV, TP, camV, zV, hasAtlas, tB, tC, tD, tE, tF, tP, tG, tH, total, grid};
+  mv.plan = {kind: "pace", MW, MH, k, f0, fEnd, full, sqC: [sq.cx, sq.cy], zSq, TB, TS, TV, TP, axisSlot, camV, zV, hasAtlas, tB, tC, tD, tE, tF, tP, tG, tH, total, grid};
   mv.bgEnd = null;
   const sl = $("#mvTime"); if(sl){ sl.max = total.toFixed(3); sl.step = (1/c.fps).toFixed(4); }
   const info = $("#mvInfo"); if(info) info.textContent = `${total.toFixed(1)} s · ${Math.round(total*c.fps)} frames · ${mv.tg.length} target${mv.tg.length === 1 ? "" : "s"}, ${n} with a tilt series · ${mv.seq.length} tilt steps${mv.seq.length ? ` (${mvSchemeText()})` : ""}`;
@@ -3228,7 +3272,7 @@ function mvAxis(g, cam, alpha, k){
   mvRound(g, -tw/2 - 12*k, -46*k, tw + 24*k, 36*k, 9*k, "rgba(0,0,0,0.65)"); g.fillStyle = "rgb(120,200,255)"; g.fillText("Tilt axis", 0, -27*k);
   g.restore();
 }
-function mvView(g, cam, alpha){ if(alpha <= 0) return; g.globalAlpha = alpha; mvTile(g, cam, mv.viewImg.img, mv.viewImg); g.globalAlpha = 1; }
+function mvView(g, cam, alpha){ if(alpha <= 0 || !mv.viewImg) return; g.globalAlpha = alpha; mvTile(g, cam, mv.viewImg.img, mv.viewImg); g.globalAlpha = 1; }
 // a picked target: yellow box at the tilt-series footprint, a circle drawn around it, its number
 function mvMark(g, cam, x, prog, k, alpha){
   if(prog <= 0 || alpha <= 0) return;
@@ -3277,15 +3321,16 @@ function mvFramePace(t){
   const pickSub = kk => L[2][1] || `Target ${kk} of ${n}`;
   if(t < P.tE){
     const u = (t - P.tD)/P.TV, z = mvZoomCam(u, P.sqC, P.zSq, [P.camV.x, P.camV.y], P.zV), cm = cam(z.x, z.y, z.s, P.fEnd), va = mvEase((z.s/P.zV - 0.25)/0.55);
-    mvScene(g, cm, 1); mvView(g, cm, va); mvBox(g, cm, mv.viewImg, mvEase(u*4)*(1 - va), k);
+    mvScene(g, cm, 1); mvView(g, cm, va); if(mv.viewImg) mvBox(g, cm, mv.viewImg, mvEase(u*4)*(1 - va), k);
     if(u < 0.65) mvTitle(g, k, L[1][0], L[1][1], 1 - mvEase((u - 0.35)/0.3)); else mvTitle(g, k, L[2][0], L[2][1] || `${n} target${n === 1 ? "" : "s"}`, mvEase((u - 0.7)/0.3));
     bar(cm); return null;
   }
   if(t < P.tG){
     const cm = P.camV; mvScene(g, cm, 1); mvView(g, cm, 1);
-    mvAxis(g, cm, mvEase((t - P.tF - 0.85*P.TP)/Math.max(0.3, 0.5*P.TP)), k);      // drawn once target 1 (on the axis) is picked
+    // target 1, then the tilt axis through it in a second slot of the same length, then the other targets one slot each
+    mvAxis(g, cm, mvEase((t - P.tF - 1.0*P.TP)/Math.max(0.3, 0.6*P.TP)), k);
     let kk = 0;
-    mv.tg.forEach((x, i) => { const pr = (t - P.tF - i*P.TP)/P.TP; if(pr > 0) kk = i + 1; mvMark(g, cm, x, Math.min(1.5, pr), k, 1); });
+    mv.tg.forEach((x, i) => { const pr = (t - P.tF - (i ? i + P.axisSlot : 0)*P.TP)/P.TP; if(pr > 0) kk = i + 1; mvMark(g, cm, x, Math.min(1.5, pr), k, 1); });
     mvTitle(g, k, L[2][0], kk ? pickSub(kk) : (L[2][1] || `${n} target${n === 1 ? "" : "s"}`), 1);
     bar(cm); return null;
   }
@@ -3327,7 +3372,7 @@ function sessionState(withStores){
     source: data.server ? "server" : data.folder ? `folder:${data.folder.name}` : "files",
     settings: {...state.settings, offset: {...state.settings.offset}}, view: {...state.view},
     focus: mont && mont.doc ? {src: mont.doc.src, g: mont.g} : null,
-    layers: state.layers.filter(L => L.docs.every(d => d.src.kind !== "demo")).map(L => ({type: L.type, name: L.name, color: L.color, visible: L.visible, rot: L.rot, showPieces: L.showPieces, loadImages: L.loadImages, alignMode: L.alignMode, paceKey: L.paceKey || undefined, docs: L.docs.map(d => ({kind: d.src.kind, path: d.src.path}))})),
+    layers: state.layers.filter(L => L.docs.every(d => d.src.kind !== "demo")).map(L => ({type: L.type, name: L.name, color: L.color, visible: L.visible, rot: L.rot, showPieces: L.showPieces, loadImages: L.loadImages, alignMode: L.alignMode, paceKey: L.paceKey || undefined, montSec: L.montSec || undefined, docs: L.docs.map(d => ({kind: d.src.kind, path: d.src.path}))})),
     pace: PACE.map(g => ({kind: g.kind, path: g.path, visible: g.visible, showImg: g.showImg}))};
   if(withStores) st.stores = {refined: REFINED, userCal: USERCAL, pace: PACESTORE};
   return st;
@@ -3412,6 +3457,7 @@ async function applyState(st){
     const L = addLayer(sl.type, docs, sl.name);
     Object.assign(L, {color: sl.color || L.color, visible: sl.visible !== false, rot: sl.rot ?? null, showPieces: !!sl.showPieces, alignMode: sl.alignMode || "auto", mergeable: !sl.paceKey});
     if(sl.paceKey) L.paceKey = sl.paceKey;
+    if(sl.montSec){ L.montSec = sl.montSec; buildLayer(L); }
     L.loadImages = !!sl.loadImages && canLoad(L);
     buildLayer(L);
   }
@@ -3483,6 +3529,7 @@ $("#layers").addEventListener("input", e => {
 $("#layers").addEventListener("change", e => {
   const el = e.target, L = layerOf(el); if(!L || !el.dataset.act) return;
   const act = el.dataset.act;
+  if(act === "montsec"){ L.montSec = {...(L.montSec || {}), [el.dataset.doc]: Number(el.value)}; rebuildKeepFocus(); if(L.loadImages) startImages(L); return; }
   if(act === "vis"){ L.visible = el.checked; render(); }
   else if(act === "type"){ L.type = el.value; L.rot = null; L.color = TYPES[L.type].color; setFocus(null); buildLayer(L); reselect(); renderLayers(); render(); }
   else if(act === "img"){ L.loadImages = el.checked; if(L.loadImages) startImages(L); renderLayers(); render(); }
@@ -3743,7 +3790,7 @@ function animateTo(target){
   anim = requestAnimationFrame(step);
 }
 function setFocus(m){
-  state.focus = m;
+  state.focus = m; state.viewFocus = null;
   if(state.refine && !state.refine.busy) setTimeout(renderRefPanel, 0);
   const chip = $("#focusChip");
   chip.hidden = !m;
@@ -3818,7 +3865,7 @@ function showInspector(){
   el.classList.add("open");
   const off = state.settings.offset, offTxt = `${off.x.toFixed(2)}, ${off.y.toFixed(2)} µm (included above)`;
   if(tg){
-    const {g, t} = tg, q = paceTargetPos(g, t), pv = g.previews[t.no], pr = g.prev[t.no];
+    const {g, t} = tg, q = paceTargetPos(g, t), pv = g.previews[t.no];
     const ts = state.layers.flatMap(L => L.items).find(x => x.pace && x.pace.g === g && x.pace.t === t), ti = ts && tiltInfo(ts.doc);
     const main = [["Target", `${t.no} of ${g.targets.length}${t.skip ? " (skip = True)" : ""}`], ["Target file", g.path.split("/").pop()],
       ["Position X", `${q[0].toFixed(3)} µm`], ["Position Y", `${q[1].toFixed(3)} µm`],
@@ -3826,7 +3873,6 @@ function showInspector(){
       ...(isFinite(t.SSX) && isFinite(t.SSY) ? [["Specimen shift", `${t.SSX.toFixed(3)}, ${t.SSY.toFixed(3)} µm`]] : []),
       ["Group offset", `${g.delta[0].toFixed(2)}, ${g.delta[1].toFixed(2)} µm${off.on && (off.x || off.y) ? ` + atlas offset ${off.x.toFixed(2)}, ${off.y.toFixed(2)} µm` : ""}`],
       ["Preview", !t.tgtfile ? "none named in the target file" : !pv ? `${t.tgtfile} (not found)` : `${t.tgtfile} · ${fmtLen(pv.w)} × ${fmtLen(pv.h)} · ${+(pv.px*1e4).toPrecision(4)} Å/px`],
-      ...(pr ? [["Preview in View", pr.ok ? `matched: moved ${pr.d[0].toFixed(2)}, ${pr.d[1].toFixed(2)} µm, score ${pr.score.toFixed(2)}` : `not matched (score ${Number(pr.score).toFixed(2)})`]] : []),
       ["Tilt series", !t.tsfile ? "none named in the target file" : !ts ? `${t.tsfile} (not acquired yet, or not opened)` : t.tsfile],
       ...(ti ? [["Angle from", `${ti.from.toFixed(1)}°`], ["Angle to", `${ti.to.toFixed(1)}°`], ["Increment", `${ti.inc.toFixed(1)}° (${ti.n} tilts)`]] : []),
       ...(ts ? shiftRows(ts.sec, ts.doc) : [])];
@@ -3860,7 +3906,7 @@ function showInspector(){
   if(e.placement === "piece") more.push(["Placement", "PieceCoordinates (no StagePosition in mdoc)"]);
   if(it.L.type === "tilt" && !isNaN(e.shownTilt)) more.push(["Shown tilt", `${e.shownTilt.toFixed(1)}°`]);
   if(!isMont) more.push(["IS → stage", userCalFor(it.doc, it.sec) ? "saved calibration for this magnification" : `${state.settings.isScale} µm per IS unit, ${state.settings.isRot}°${state.settings.isMirror ? ", Y inverted" : ""}`]);
-  if(it.pace) more.push(["PACEtomo", `${it.pace.g.name}, target ${it.pace.t.no}${it.pace.g.prev[it.pace.t.no] && it.pace.g.prev[it.pace.t.no].ok ? ", Preview matched in the View" : it.pace.g.anchored ? ", from the aligned View" : ", nominal stage position"}`]);
+  if(it.pace) more.push(["PACEtomo", `${it.pace.g.name}, target ${it.pace.t.no}${it.pace.g.anchored ? ", from the aligned View" : ", nominal stage position"}`]);
   inspHtml(it.montage ? (e.pieces ? it.montage.name : it.montage.name + " · piece " + it.sec.index) : it.label, `[${it.sec.kind} = ${it.sec.index}] · ${TYPES[it.L.type].label}`, main, more, it.sec, it.doc);
 }
 $("#inspClose").addEventListener("click", () => { state.selected = null; state.paceSel = null; state.paceTgt = null; showInspector(); renderPace(); render(); });
@@ -3927,7 +3973,8 @@ function endPointer(e){
   else if(drag && !drag.moved && pointers.size === 1){
     const it = hitTest(...p), sq = hitTest(...p, "square"), tg = isImgItem(it) ? null : paceTargetHit(...p), pg = tg ? tg.g : isImgItem(it) ? null : paceHit(...p);
     state.paceSel = pg; state.paceTgt = tg;
-    if(!pg && !isImgItem(it) && sq && sq.montage && (!state.focus || state.focus.key !== sq.montage.key)){ state.selected = sq; showInspector(); focusMontage(sq.montage); }
+    if(pg && !tg && pg.view && state.viewFocus !== pg.key){ zoomView(pg); }
+    else if(!pg && !isImgItem(it) && sq && sq.montage && (!state.focus || state.focus.key !== sq.montage.key)){ state.selected = sq; showInspector(); focusMontage(sq.montage); }
     else if(!pg && it && it.L.type === "atlas"){ fullView(); }
     else { state.selected = pg ? null : it; showInspector(); render(); }
     renderPace();

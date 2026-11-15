@@ -493,7 +493,15 @@ function buildMontage(L, doc){
     groups.get(g).push({sec:s, pc: pc.length >= 2 ? pc : null, st: stagePos(doc, s)});
   }
   const multi = groups.size > 1;
+  // an atlas file can hold several grid maps (one montage per section): only the chosen one is shown
+  let only = null;
+  if(L.type === "atlas" && multi){
+    const keys = [...groups.keys()].sort((a, b) => a - b), pick = (L.montSec || {})[doc.name];
+    only = keys.includes(pick) ? pick : keys[0];
+    (L.montChoices = L.montChoices || []).push({doc: doc.name, secs: keys.map(k => ({g: k, n: groups.get(k).length})), sel: only});
+  }
   for(const [g, list] of groups){
+    if(only != null && g !== only) continue;
     const mont = {name: baseName(doc.name) + (multi ? ` · section ${g}` : ""), items: [], key: `${doc.id}|${g}`, doc, L, g, pieceSecs: list.map(p => p.sec), tiles: []};
     L.montages.push(mont);
     const fit = fitMontage(list.filter(p => p.pc && p.st));
@@ -641,7 +649,7 @@ function buildTilt(L, doc){
 }
 
 function buildLayer(L){
-  L.items = []; L.warn = new Set(); L.montages = []; L.userCalUsed = null;
+  L.items = []; L.warn = new Set(); L.montages = []; L.userCalUsed = null; L.montChoices = [];
   for(const doc of L.docs){
     if(L.type === "atlas" || L.type === "square") buildMontage(L, doc);
     else if(L.type === "tilt") buildTilt(L, doc);
@@ -1462,7 +1470,7 @@ async function alignMontage(mont, ents){
 
 function imgControls(L){
   const dis = canLoad(L) ? "" : "disabled";
-  let h = `<label class="lcheck full" for="im${L.id}"><input type="checkbox" id="im${L.id}" data-act="img" ${L.loadImages?"checked":""} ${dis}> Show images</label>`;
+  let h = (L.montChoices || []).map(c => `<label class="full" title="This atlas file holds ${c.secs.length} montages; one is shown">Grid map (${esc(c.doc.split("/").pop())})<select data-act="montsec" data-doc="${esc(c.doc)}">${c.secs.map(x => `<option value="${x.g}" ${x.g === c.sel ? "selected" : ""}>Section ${x.g} · ${x.n} pieces</option>`).join("")}</select></label>`).join("") + `<label class="lcheck full" for="im${L.id}"><input type="checkbox" id="im${L.id}" data-act="img" ${L.loadImages?"checked":""} ${dis}> Show images</label>`;
   if(L.loadImages && L.type === "square" && L.montages.length > 1) h += `<button class="btn small full" data-act="imgall">Load all ${L.montages.length} montages</button>`;
   h += `<div class="limg" id="limg${L.id}">${imgStatusText(L)}</div>`;
   return h;
@@ -2160,15 +2168,16 @@ function openCtxMenu(p){
     const tg = isImgItem(it) ? null : paceTargetHit(...p);
     if(tg) groups.push({hd: `Target ${tg.t.no} · ${tg.g.root || tg.g.name}`, items: [
       ["Zoom to this target", () => { state.paceSel = tg.g; state.paceTgt = tg; state.selected = null; showInspector(); setFocus(null); const q = paceTargetPos(tg.g, tg.t), pv = tg.g.previews[tg.t.no], d = pv ? Math.max(pv.w, pv.h) : 1; animateTo(viewFor([{cx: q[0], cy: q[1], w: d, h: d, rot: 0}], 0.4)); renderPace(); }],
-      ...(() => { const ts = state.layers.flatMap(L => L.items).find(x => x.pace && x.pace.g === tg.g && x.pace.t === tg.t && x.L.type === "tilt"); return ts ? [["Make acquisition movie…", () => mvOpen(ts)]] : []; })()]});
+      ...(() => { const ts = state.layers.flatMap(L => L.items).find(x => x.pace && x.pace.g === tg.g && x.pace.t === tg.t && x.L.type === "tilt"); return ts ? [["Make acquisition movie…", () => mvOpen(ts)]] : []; })(),
+      ["Make PACEtomo movie…", () => mvOpenPace(tg.g)]]});
     if(pg) groups.push({hd: `View · ${pg.root || pg.name}`, items: [
       ["Zoom to this View", () => { state.paceSel = pg; state.paceTgt = null; state.selected = null; showInspector(); setFocus(null); animateTo(viewFor([paceViewBox(pg)], 0.5)); renderPace(); }],
       ["Align by dragging…", () => startAlign({kind: "pace", g: pg})],
-      ["Align by correlation (shift only)", () => anchorPace(pg, false), !pg.view || pg.busy],
-      [`Align by correlation (shift + rotation ±${ROT_SPAN}°)`, () => anchorPace(pg, true), !pg.view || pg.busy],
-      ["Refine targets inside the View", () => refinePace(pg), !pg.view || pg.busy],
+      ["Align by correlation (shift only)", () => anchorPace(pg, false), !pg.view || !!pg.view.noImage || pg.busy, "Needs the View image"],
+      [`Align by correlation (shift + rotation ±${ROT_SPAN}°)`, () => anchorPace(pg, true), !pg.view || !!pg.view.noImage || pg.busy, "Needs the View image"],
+      ["Refine targets inside the View", () => refinePace(pg), !pg.view || !!pg.view.noImage || pg.busy, "Needs the View image"],
       ["Find new tilt series", () => openPaceTS(pg)],
-      ["Make PACEtomo movie…", () => mvOpenPace(pg), !pg.view],
+      ["Make PACEtomo movie…", () => mvOpenPace(pg)],
       ["Reset alignment", () => resetPace(pg), pg.busy]]});
     if(isImgItem(it)) groups.push({hd: `${it.L.type === "tilt" ? "Tilt series" : "Exposure"} · ${it.label}`, items: [
       ["Zoom to this image", () => zoomItem(it)],
@@ -2252,7 +2261,14 @@ async function imageDoc(kind, dir, mrcName){
   const mdocName = mrcName + ".mdoc", txt = await readSibling(kind, dir, mdocName);
   const doc = parseMdoc(txt || "", dir + mdocName);
   doc.src = {kind, path: dir + mdocName}; doc.synthetic = !txt;
-  const h = await getHeader(doc);
+  let h;
+  try { h = await getHeader(doc); }
+  catch(e){
+    // no image file: the mdoc alone still gives the size and pixel size, so the box can be placed
+    const s0 = imageSections(doc)[0], px0 = s0 ? num(get(doc, s0, "PixelSpacing")) : NaN, sz0 = s0 ? imageSize(doc, s0) : null;
+    if(txt && px0 > 0 && sz0) return {doc, sec: s0, px: px0/1e4, w: sz0[0]*px0/1e4, h: sz0[1]*px0/1e4, canvas: null, noImage: e.message};
+    throw e;
+  }
   let sec = imageSections(doc)[0];
   if(!sec){ sec = {kind: "ZValue", index: "0", kv: {}}; doc.sections.push(sec); }
   if(!(num(get(doc, sec, "PixelSpacing")) > 0)){
@@ -2328,10 +2344,11 @@ async function loadPacePreviews(g){
 async function loadPaceView(g){
   try {
     g.view = await imageDoc(g.kind, g.dir, g.viewfile);
+    if(g.view.noImage){ g.err = `View image ${g.viewfile}: ${g.view.noImage} The View is placed from its mdoc, without the image.`; renderPace(); render(); return; }
     const learned = VSCALE[magKey(g.view.doc, g.view.sec)];
     if(!g.scaleKnown && learned > 0 && learned !== 1){ g.scale = learned; g.status += ` View size ×${learned} reused from an earlier group at this magnification.`; }
     g.view.canvas = (await imageAt(g.view.doc, g.view.sec, Math.max(g.view.px, Math.max(g.view.w, g.view.h)/1200))).canvas;
-  } catch(e){ g.view = g.view && g.view.canvas ? g.view : null; g.err = `View image ${g.viewfile}: ${e.message}`; }
+  } catch(e){ g.view = g.view && (g.view.canvas || g.view.noImage) ? g.view : null; g.err = `View image ${g.viewfile}: ${e.message}`; }
   renderPace(); render();
 }
 const paceOff = () => { const o = state.settings.offset; return o.on ? [o.x, o.y] : [0, 0]; };
@@ -2381,7 +2398,7 @@ function zoomPace(g){
 }
 async function anchorPace(g, rotOn){
   if(g.busy) return;
-  if(!g.view){ g.status = "The View image is not loaded, so the area cannot be anchored. Place it by dragging instead."; renderPace(); return; }
+  if(!g.view || g.view.noImage){ g.status = "The View image is not loaded, so the area cannot be aligned by correlation. Align it by dragging instead."; renderPace(); return; }
   const rotate = useRot(rotOn);
   g.busy = true; g.status = `Matching the View image to the square map (${howTxt(rotate)})…`; renderPace();
   try {
@@ -2677,11 +2694,17 @@ function mvFrameBox(tiles){        // the box around tiles, in their own (shared
   return {cx: o.cx + um*c0 - vm*s0, cy: o.cy + um*s0 + vm*c0, w: u1 - u0, h: v1 - v0, rot: o.rot};
 }
 async function mvPrepare(){
-  const self = mv, it = mv.kind === "pace" ? paceViewBox(mv.grp) : mv.it;
+  const self = mv, it = mv.kind === "pace" ? mv.areaBox : mv.it;
   const sq = squareFor(it.cx, it.cy);
   if(!sq) throw new Error(`no square map under this ${mv.kind === "pace" ? "View" : "tilt series"}. Open the square map and its .mrc first.`);
-  const atlasL = state.layers.find(L => L.type === "atlas" && L.visible && canLoad(L));
-  if(atlasL){ if(!atlasL.loadImages){ atlasL.loadImages = true; renderLayers(); } await Promise.all(atlasL.montages.map(m => ensureMontage(atlasL, m))); }
+  const atlasL = state.layers.find(L => L.type === "atlas" && L.visible);
+  const noAtlas = "Open the atlas together with its .mrc, or hide the atlas layer to start the movie at the square map.";
+  if(atlasL){
+    if(!canLoad(atlasL)) throw new Error(`the atlas images (.mrc) are not available. ${noAtlas}`);
+    if(!atlasL.loadImages){ atlasL.loadImages = true; renderLayers(); }
+    try { await Promise.all(atlasL.montages.map(m => ensureMontage(atlasL, m))); } catch(e){}
+    if(!atlasL.montages.some(m => m.tiles.some(t => imgCache.has(t.key)))) throw new Error(`the atlas images could not be read. ${noAtlas}`);
+  }
   const {parts} = await squareParts(sq.L, sq.m.key);            // loads the montage
   const m = sq.L.montages.find(x => x.key === sq.m.key) || sq.m;
   self.atlasTiles = atlasL ? atlasL.montages.flatMap(x => x.tiles).filter(t => imgCache.has(t.key)) : [];
@@ -3122,7 +3145,7 @@ $("#mvOut").addEventListener("click", async e => {
 /* ---------- PACEtomo movie: atlas -> square map -> View -> picking each target -> all tilt series in step ---------- */
 // The tilt series opened for the targets replace the targets: their (aligned) positions and images are used.
 async function mvOpenPace(g){
-  if(!g || !g.view || !g.view.doc) return setMsg("The View image of this PACEtomo area is not loaded, so the movie cannot be made.");
+  if(!g) return;
   if(mv && mv.busy) return;
   const dlg = $("#mvDlg");
   mv = {kind: "pace", grp: g, cfg: mvCfg(), t: 0, ready: false, timg: new Map(), loading: new Set(), canvas: $("#mvCanvas"), lastImg: []};
@@ -3133,9 +3156,12 @@ async function mvOpenPace(g){
   mvForm(); mvEncoderNote(); if(!dlg.open) dlg.showModal();
   mvSay("Loading the atlas, the square map and the View…");
   try {
-    await mvPrepare(); await mvPacePrepare(); mv.ready = true; mvPlan();
-    const nts = mv.tg.filter(x => x.tilts).length;
-    mvSay(nts ? "" : "None of the targets has a tilt series open yet, so the movie ends after the targets are picked. Open the tilt series and reopen this dialog.", !nts);
+    await mvPrepare(); const noStack = await mvPaceStacks(); await mvPacePrepare(); mv.ready = true; mvPlan();
+    const nts = mv.tg.filter(x => x.tilts).length, notes = [];
+    if(noStack.length) notes.push(`No image stack for target${noStack.length === 1 ? "" : "s"} ${noStack.join(", ")}: picked, but left out of the parallel tilt series.`);
+    if(!mv.viewImg) notes.push(mv.grp.view ? "The View image is not available, so the View is not shown; the square map is used instead." : "No View for this area, so the camera frames the targets on the square map.");
+    if(!nts) notes.push("None of the targets has a tilt series with images, so the movie ends after the targets are picked.");
+    mvSay(notes.join(" "), !nts);
     mvShow(mv.plan.tP + 0.4);
   } catch(e){ mvSay(`Cannot make the movie: ${e.message}`, true); }
 }
@@ -3149,6 +3175,24 @@ function mvPaceTargets(){
     const tilts = ts ? mvTilts(ts.doc) : null;
     return {i, t, no: Number(t.no) || t.no, ts, box, tilts: tilts && tilts.secs.length ? tilts : null};
   });
+  mvPaceAngles();
+  mv.areaBox = mvPaceArea(g);
+}
+// the View box, or (without a View) a box around the targets
+function mvPaceArea(g){
+  if(g.view) return paceViewBox(g);
+  const b = mv.tg.map(x => x.box), x0 = Math.min(...b.map(q => q.cx - q.w)), x1 = Math.max(...b.map(q => q.cx + q.w)), y0 = Math.min(...b.map(q => q.cy - q.h)), y1 = Math.max(...b.map(q => q.cy + q.h));
+  return {cx: (x0 + x1)/2, cy: (y0 + y1)/2, w: Math.max(4, (x1 - x0)*1.2), h: Math.max(4, (y1 - y0)*1.2), rot: paceRot(g), flip: g.flip || 1};
+}
+// a tilt series whose image stack cannot be read is treated like a target without one (usually target 1, the tracking target)
+async function mvPaceStacks(){
+  const miss = [];
+  for(const x of mv.tg){ if(!x.tilts) continue; try { await getHeader(x.ts.doc); } catch(e){ x.tilts = null; x.noStack = e.message; miss.push(x.no); } }
+  if(miss.length){ mvPaceAngles(); mv.seq = mvSeq(); }
+  return miss;
+}
+function mvPaceAngles(){
+  const c = mv.cfg;
   // one list of angles for all targets (angles within 0.75° are the same step)
   const withTs = mv.tg.filter(x => x.tilts), all = [...new Set(withTs.flatMap(x => x.tilts.secs.map(s => Math.round(s.a*10)/10)))].sort((a, b) => a - b), merged = [];
   for(const a of all) if(!merged.length || a - merged[merged.length - 1] > 0.75) merged.push(a);
@@ -3156,10 +3200,14 @@ function mvPaceTargets(){
   if(merged.length) Object.assign(c, {start: Math.round(mv.tilts.start), low: Math.floor(merged[0]), high: Math.ceil(merged[merged.length - 1])});
 }
 async function mvPacePrepare(){
-  const g = mv.grp, v = g.view, b = paceViewBox(g);
+  const g = mv.grp, v = g.view;
+  mv.viewImg = null;
+  if(!v || v.noImage) return;                      // no View image: the square map shows the area
   mvSay("Reading the View image…");
-  const res = Math.max(v.px, Math.max(v.w, v.h)/3072);
-  mv.viewImg = {img: (await imageAt(v.doc, v.sec, res)).canvas, cx: b.cx, cy: b.cy, w: b.w, h: b.h, rot: b.rot, flip: b.flip || 1};
+  try {
+    const b = paceViewBox(g), res = Math.max(v.px, Math.max(v.w, v.h)/3072);
+    mv.viewImg = {img: (await imageAt(v.doc, v.sec, res)).canvas, cx: b.cx, cy: b.cy, w: b.w, h: b.h, rot: b.rot, flip: b.flip || 1};
+  } catch(e){ mv.viewImg = null; }
 }
 // for each step of the playback, the section of each target's tilt series at that angle (or the last one shown)
 function mvPaceSteps(){
@@ -3175,7 +3223,7 @@ function mvPaceSteps(){
   }
 }
 function mvPlanPace(B){
-  const {MW, MH, k, f0, fEnd, full, zSq, TB, TS, hasAtlas, sq, cam0} = B, c = mv.cfg, vb = mv.viewImg;
+  const {MW, MH, k, f0, fEnd, full, zSq, TB, TS, hasAtlas, sq, cam0} = B, c = mv.cfg, vb = mv.viewImg || mv.areaBox;
   // the View and every target circle fit in the frame (below the title); View zoom scales that
   const cf = {...cam0, f: fEnd}, Pv = mvCorners(vb).map(p => mvPt(cf, p[0], p[1]));
   for(const x of mv.tg){ const [sx, sy] = mvPt(cf, x.box.cx, x.box.cy), r = Math.hypot(x.box.w, x.box.h)/2*1.25; Pv.push([sx - r, sy - r], [sx + r, sy + r]); }
@@ -3228,7 +3276,7 @@ function mvAxis(g, cam, alpha, k){
   mvRound(g, -tw/2 - 12*k, -46*k, tw + 24*k, 36*k, 9*k, "rgba(0,0,0,0.65)"); g.fillStyle = "rgb(120,200,255)"; g.fillText("Tilt axis", 0, -27*k);
   g.restore();
 }
-function mvView(g, cam, alpha){ if(alpha <= 0) return; g.globalAlpha = alpha; mvTile(g, cam, mv.viewImg.img, mv.viewImg); g.globalAlpha = 1; }
+function mvView(g, cam, alpha){ if(alpha <= 0 || !mv.viewImg) return; g.globalAlpha = alpha; mvTile(g, cam, mv.viewImg.img, mv.viewImg); g.globalAlpha = 1; }
 // a picked target: yellow box at the tilt-series footprint, a circle drawn around it, its number
 function mvMark(g, cam, x, prog, k, alpha){
   if(prog <= 0 || alpha <= 0) return;
@@ -3277,7 +3325,7 @@ function mvFramePace(t){
   const pickSub = kk => L[2][1] || `Target ${kk} of ${n}`;
   if(t < P.tE){
     const u = (t - P.tD)/P.TV, z = mvZoomCam(u, P.sqC, P.zSq, [P.camV.x, P.camV.y], P.zV), cm = cam(z.x, z.y, z.s, P.fEnd), va = mvEase((z.s/P.zV - 0.25)/0.55);
-    mvScene(g, cm, 1); mvView(g, cm, va); mvBox(g, cm, mv.viewImg, mvEase(u*4)*(1 - va), k);
+    mvScene(g, cm, 1); mvView(g, cm, va); if(mv.viewImg) mvBox(g, cm, mv.viewImg, mvEase(u*4)*(1 - va), k);
     if(u < 0.65) mvTitle(g, k, L[1][0], L[1][1], 1 - mvEase((u - 0.35)/0.3)); else mvTitle(g, k, L[2][0], L[2][1] || `${n} target${n === 1 ? "" : "s"}`, mvEase((u - 0.7)/0.3));
     bar(cm); return null;
   }
@@ -3327,7 +3375,7 @@ function sessionState(withStores){
     source: data.server ? "server" : data.folder ? `folder:${data.folder.name}` : "files",
     settings: {...state.settings, offset: {...state.settings.offset}}, view: {...state.view},
     focus: mont && mont.doc ? {src: mont.doc.src, g: mont.g} : null,
-    layers: state.layers.filter(L => L.docs.every(d => d.src.kind !== "demo")).map(L => ({type: L.type, name: L.name, color: L.color, visible: L.visible, rot: L.rot, showPieces: L.showPieces, loadImages: L.loadImages, alignMode: L.alignMode, paceKey: L.paceKey || undefined, docs: L.docs.map(d => ({kind: d.src.kind, path: d.src.path}))})),
+    layers: state.layers.filter(L => L.docs.every(d => d.src.kind !== "demo")).map(L => ({type: L.type, name: L.name, color: L.color, visible: L.visible, rot: L.rot, showPieces: L.showPieces, loadImages: L.loadImages, alignMode: L.alignMode, paceKey: L.paceKey || undefined, montSec: L.montSec || undefined, docs: L.docs.map(d => ({kind: d.src.kind, path: d.src.path}))})),
     pace: PACE.map(g => ({kind: g.kind, path: g.path, visible: g.visible, showImg: g.showImg}))};
   if(withStores) st.stores = {refined: REFINED, userCal: USERCAL, pace: PACESTORE};
   return st;
@@ -3412,6 +3460,7 @@ async function applyState(st){
     const L = addLayer(sl.type, docs, sl.name);
     Object.assign(L, {color: sl.color || L.color, visible: sl.visible !== false, rot: sl.rot ?? null, showPieces: !!sl.showPieces, alignMode: sl.alignMode || "auto", mergeable: !sl.paceKey});
     if(sl.paceKey) L.paceKey = sl.paceKey;
+    if(sl.montSec){ L.montSec = sl.montSec; buildLayer(L); }
     L.loadImages = !!sl.loadImages && canLoad(L);
     buildLayer(L);
   }
@@ -3483,6 +3532,7 @@ $("#layers").addEventListener("input", e => {
 $("#layers").addEventListener("change", e => {
   const el = e.target, L = layerOf(el); if(!L || !el.dataset.act) return;
   const act = el.dataset.act;
+  if(act === "montsec"){ L.montSec = {...(L.montSec || {}), [el.dataset.doc]: Number(el.value)}; rebuildKeepFocus(); if(L.loadImages) startImages(L); return; }
   if(act === "vis"){ L.visible = el.checked; render(); }
   else if(act === "type"){ L.type = el.value; L.rot = null; L.color = TYPES[L.type].color; setFocus(null); buildLayer(L); reselect(); renderLayers(); render(); }
   else if(act === "img"){ L.loadImages = el.checked; if(L.loadImages) startImages(L); renderLayers(); render(); }

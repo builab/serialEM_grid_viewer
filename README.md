@@ -83,6 +83,7 @@ Alternatively, if the data is on your local computer, then start on the local co
 - When the page is served by `mdoc_server.py`, Open, Save and Load browse the **server**, not your own computer. A "Pick from this computer instead" link remains in each dialog.
 - The **Data** box shows the server, its shared folders and the folders the open files came from.
 - Each layer card shows its name, visibility, colour and **Show images**. Type, box rotation, piece alignment and sizes are under **More**.
+- **An atlas file with several grid maps** (one montage per section) shows one of them. Pick which with **Grid map** on the layer card; the choice is kept in saved sessions.
 
 ## Aligning
 
@@ -160,9 +161,15 @@ Right-click the View of a PACEtomo area and choose **Make PACEtomo movie…**. T
 2. Picking the targets one by one: a box at each tilt series, a circle drawn around it, and its number. After target 1 is picked, the tilt axis is drawn through it as a dashed line (the stage X axis); it can be turned off.
 3. All tilt series in a grid, stepping through the tilt angles together.
 
-The tilt series stand in for their targets, at their aligned positions. Targets without a tilt series are picked but left out of the grid. The playback uses the same bidirectional order as the acquisition movie (start → lowest → highest → start), not the dose-symmetric acquisition order.
+The tilt series stand in for their targets, at their aligned positions. Targets without a tilt series, or whose tilt-series stack cannot be read (often target 1, the tracking target), are picked but left out of the grid. The playback uses the same bidirectional order as the acquisition movie (start → lowest → highest → start), not the dose-symmetric acquisition order.
 
 The camera shows the View and all targets; **View zoom** (1 = they just fit) zooms in or out from there. The dialog has the same labels, camera, playback and output settings as the acquisition movie. The timing settings are the atlas, the zoom to the square, the square map, the zoom to the View, and the time per target.
+
+Missing files:
+
+- **Atlas or square map without its `.mrc`:** no movie. Hide the atlas layer to start the movie at the square map instead.
+- **View without its `.mrc`:** the movie is still made from the square map; the View box comes from its mdoc and the image is not shown. Aligning the View by correlation needs the image, but aligning by dragging works.
+- **Target Previews missing:** no effect on targets with a tilt series.
 
 ![PACEtomo movie frames](docs/images/pacetomo-movie-preview.png)
 

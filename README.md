@@ -160,7 +160,7 @@ For the movie, the square map is rebuilt as one image: every piece is re-read at
 Right-click the View of a PACEtomo area and choose **Make PACEtomo movie…**. The movie goes:
 
 1. Atlas → square map → zoom to the View.
-2. Picking the targets one by one: a box at each tilt series, a circle drawn around it, and its number. After target 1 is picked, the tilt axis is drawn through it as a dashed line (the stage X axis); it can be turned off.
+2. Picking the targets one by one: a box at each tilt series, a circle drawn around it, and its number. After target 1 is picked, the tilt axis is drawn through it as a dashed line (the stage X axis), and the movie pauses on it for one more target's time before target 2; the axis can be turned off.
 3. All tilt series in a grid, stepping through the tilt angles together.
 
 The tilt series stand in for their targets, at their aligned positions. Targets without a tilt series, or whose tilt-series stack cannot be read (often target 1, the tracking target), are picked but left out of the grid. The playback uses the same bidirectional order as the acquisition movie (start → lowest → highest → start), not the dose-symmetric acquisition order.

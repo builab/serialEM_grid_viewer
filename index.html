@@ -3247,9 +3247,9 @@ function mvPlanPace(B){
   }
   mv.seq = mvSeq(); mvPaceSteps();
   const TV = Math.max(0.5, c.tToView), TP = Math.max(0.2, c.tPick);
-  const tB = hasAtlas ? Math.max(0.5, c.tAtlas) : 0, tC = hasAtlas ? tB + TB : 0, tD = tC + TS, tE = tD + TV, tF = tE + 1.2, tP = tF + mv.tg.length*TP, tG = tP + 1.0, tH = n ? tG + 1.8 : tG;
+  const tB = hasAtlas ? Math.max(0.5, c.tAtlas) : 0, tC = hasAtlas ? tB + TB : 0, tD = tC + TS, tE = tD + TV, tF = tE + 1.2, axisSlot = c.tiltAxis && mv.tg.length ? 1 : 0, tP = tF + (mv.tg.length + axisSlot)*TP, tG = tP + 1.0, tH = n ? tG + 1.8 : tG;
   const total = tH + (n ? mv.seq.length/Math.max(1, c.tiltFps) + 1.5 : 0.5);
-  mv.plan = {kind: "pace", MW, MH, k, f0, fEnd, full, sqC: [sq.cx, sq.cy], zSq, TB, TS, TV, TP, camV, zV, hasAtlas, tB, tC, tD, tE, tF, tP, tG, tH, total, grid};
+  mv.plan = {kind: "pace", MW, MH, k, f0, fEnd, full, sqC: [sq.cx, sq.cy], zSq, TB, TS, TV, TP, axisSlot, camV, zV, hasAtlas, tB, tC, tD, tE, tF, tP, tG, tH, total, grid};
   mv.bgEnd = null;
   const sl = $("#mvTime"); if(sl){ sl.max = total.toFixed(3); sl.step = (1/c.fps).toFixed(4); }
   const info = $("#mvInfo"); if(info) info.textContent = `${total.toFixed(1)} s · ${Math.round(total*c.fps)} frames · ${mv.tg.length} target${mv.tg.length === 1 ? "" : "s"}, ${n} with a tilt series · ${mv.seq.length} tilt steps${mv.seq.length ? ` (${mvSchemeText()})` : ""}`;
@@ -3325,9 +3325,10 @@ function mvFramePace(t){
   }
   if(t < P.tG){
     const cm = P.camV; mvScene(g, cm, 1); mvView(g, cm, 1);
-    mvAxis(g, cm, mvEase((t - P.tF - 0.85*P.TP)/Math.max(0.3, 0.5*P.TP)), k);      // drawn once target 1 (on the axis) is picked
+    // target 1, then the tilt axis through it in a second slot of the same length, then the other targets one slot each
+    mvAxis(g, cm, mvEase((t - P.tF - 1.0*P.TP)/Math.max(0.3, 0.6*P.TP)), k);
     let kk = 0;
-    mv.tg.forEach((x, i) => { const pr = (t - P.tF - i*P.TP)/P.TP; if(pr > 0) kk = i + 1; mvMark(g, cm, x, Math.min(1.5, pr), k, 1); });
+    mv.tg.forEach((x, i) => { const pr = (t - P.tF - (i ? i + P.axisSlot : 0)*P.TP)/P.TP; if(pr > 0) kk = i + 1; mvMark(g, cm, x, Math.min(1.5, pr), k, 1); });
     mvTitle(g, k, L[2][0], kk ? pickSub(kk) : (L[2][1] || `${n} target${n === 1 ? "" : "s"}`), 1);
     bar(cm); return null;
   }

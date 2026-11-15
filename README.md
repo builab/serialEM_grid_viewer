@@ -196,7 +196,7 @@ The collapsed **Settings** section in the sidebar holds:
 |---|---|
 | Drag | Pan (while aligning: move the item) |
 | Wheel | Zoom |
-| Click | Select and show details; click a square map to zoom into it |
+| Click | Select and show details; click a square map or a PACEtomo View to zoom into it (click again to just select) |
 | Right-click | Menu for the items under the cursor |
 | F or Esc | Full view |
 | D | Toggle difference view for moving images |

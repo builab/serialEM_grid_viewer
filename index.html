@@ -2170,7 +2170,7 @@ function openCtxMenu(p){
       ...(() => { const ts = state.layers.flatMap(L => L.items).find(x => x.pace && x.pace.g === tg.g && x.pace.t === tg.t && x.L.type === "tilt"); return ts ? [["Make acquisition movie…", () => mvOpen(ts)]] : []; })(),
       ...(pg ? [] : [["Make PACEtomo movie…", () => mvOpenPace(tg.g)]])]});       // offered under the View when the View is there
     if(pg) groups.push({hd: `View · ${pg.root || pg.name}`, items: [
-      ["Zoom to this View", () => { state.paceSel = pg; state.paceTgt = null; state.selected = null; showInspector(); setFocus(null); animateTo(viewFor([paceViewBox(pg)], 0.5)); renderPace(); }],
+      ["Zoom to this View", () => zoomView(pg)],
       ["Align by dragging…", () => startAlign({kind: "pace", g: pg})],
       ["Align by correlation (shift only)", () => anchorPace(pg, false), !pg.view || !!pg.view.noImage || pg.busy, "Needs the View image"],
       [`Align by correlation (shift + rotation ±${ROT_SPAN}°)`, () => anchorPace(pg, true), !pg.view || !!pg.view.noImage || pg.busy, "Needs the View image"],
@@ -2388,6 +2388,12 @@ function paceTargetHit(sx, sy){
     for(const t of g.targets){ const h = t.hit; if(h && Math.hypot(sx - h.x, sy - h.y) <= h.r + 3 && (!best || h.r < best.t.hit.r)) best = {g, t}; }
   }
   return best;
+}
+// zoom to a PACEtomo View, select it (the same for a click on the View and for its menu item)
+function zoomView(g){
+  state.paceSel = g; state.paceTgt = null; state.selected = null; showInspector();
+  setFocus(null); state.viewFocus = g.key;
+  animateTo(viewFor([paceViewBox(g)], 0.5)); renderPace();
 }
 function zoomPace(g){
   const pts = g.targets.filter(t => t.stage).map(t => { const p = paceTargetPos(g, t); return {cx: p[0], cy: p[1], w: 0.5, h: 0.5, rot: 0}; });
@@ -3781,7 +3787,7 @@ function animateTo(target){
   anim = requestAnimationFrame(step);
 }
 function setFocus(m){
-  state.focus = m;
+  state.focus = m; state.viewFocus = null;
   if(state.refine && !state.refine.busy) setTimeout(renderRefPanel, 0);
   const chip = $("#focusChip");
   chip.hidden = !m;
@@ -3964,7 +3970,8 @@ function endPointer(e){
   else if(drag && !drag.moved && pointers.size === 1){
     const it = hitTest(...p), sq = hitTest(...p, "square"), tg = isImgItem(it) ? null : paceTargetHit(...p), pg = tg ? tg.g : isImgItem(it) ? null : paceHit(...p);
     state.paceSel = pg; state.paceTgt = tg;
-    if(!pg && !isImgItem(it) && sq && sq.montage && (!state.focus || state.focus.key !== sq.montage.key)){ state.selected = sq; showInspector(); focusMontage(sq.montage); }
+    if(pg && !tg && pg.view && state.viewFocus !== pg.key){ zoomView(pg); }
+    else if(!pg && !isImgItem(it) && sq && sq.montage && (!state.focus || state.focus.key !== sq.montage.key)){ state.selected = sq; showInspector(); focusMontage(sq.montage); }
     else if(!pg && it && it.L.type === "atlas"){ fullView(); }
     else { state.selected = pg ? null : it; showInspector(); render(); }
     renderPace();

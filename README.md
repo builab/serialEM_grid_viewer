@@ -1,4 +1,5 @@
-# SerialEM Grid Viewer (mdoc Stage Map)
+# SerialEM Grid Viewer [![DOI](https://zenodo.org/badge/1457074672.svg)](https://doi.org/10.5281/zenodo.24258385)
+
 
 <!-- Screenshots live in docs/images/. Replace each placeholder PNG with a real screenshot of the same name (1600×900 or any 16:9 size works). -->
 

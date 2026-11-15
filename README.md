@@ -95,8 +95,10 @@ All alignment is done from the **right-click menu** on the map. It lists actions
 |---|---|
 | Square map | Zoom to this square · Align to atlas by dragging · Align to atlas by correlation · Reset atlas offset |
 | Exposure or tilt series | Zoom to this image · Align by dragging · Align by correlation (shift only, or shift + rotation ±5°) · Refine the whole layer by correlation · Reset position · Make acquisition movie (tilt series) |
-| PACEtomo View | Zoom to this View · Align by dragging · Align by correlation (shift only, or shift + rotation ±5°) · Refine targets inside the View · Find new tilt series · Reset alignment |
+| PACEtomo View | Zoom to this View · Align by dragging · Align by correlation (shift only, or shift + rotation ±5°) · Find related tilt series · Make PACEtomo movie · Reset alignment |
 | PACEtomo target | Zoom to this target · Make acquisition movie |
+
+The square-map actions appear only when you right-click the square map itself, not a View, target or image on it.
 
 **Align by dragging** opens an align bar. Drag anywhere on the map to move the item. What moves together:
 
@@ -117,7 +119,7 @@ While aligning, the moving images are drawn at 50 % opacity. Press **D** for a d
 - Opening one `_tgts.txt` also opens its View image, the Preview image at each target, and every tilt series acquired so far. They form one group in the Layers list, with the tilt series nested under it.
 - Each group has its own colour (bright yellow-green by default). Each target is drawn as a circle around its image.
 - **View size:** if the View's pixel size in its mdoc disagrees with the square map, aligning by correlation also fits the View's size. The factor is remembered per magnification and reused for the next group. You can also set it by hand under the group's **More** ("View size ×").
-- **Find new tilt series** picks up tilt series acquired after the file was opened.
+- **Find related tilt series** (right-click the View, or the group's **More**) searches the whole shared folder and its subfolders for the tilt series named in the target file, and opens the ones not open yet. A copy in the target file's own folder is preferred, then the nearest one. It needs the server or a chosen data folder.
 - **Tilt series opened on their own** are recognized by name (the `tsfile` entries in the `_tgts.txt`), whenever and from whichever folder they are opened. They join the group and sit at their target.
 - **A tilt series can be aligned on its own** (right-click it). It keeps its own position and stays part of the group; its target circle follows it.
 
@@ -127,7 +129,7 @@ Click any item to see its details. The short list comes first; the raw mdoc keys
 
 - **Square map and atlas:** file, centre X/Y, box size, image size, pixel size used, box rotation, atlas offset, fitted px → stage.
 - **Exposure, tilt series and View:** the same, plus image shift and specimen shift. Tilt series also show angle from, to and increment.
-- **PACEtomo target** (click inside its circle): target number, position, stage position in the file, specimen shift, Preview and how it matched in the View, and the tilt series with its angle range.
+- **PACEtomo target** (click inside its circle): target number, position, stage position in the file, specimen shift, Preview, and the tilt series with its angle range.
 
 ![Details of a PACEtomo target](docs/images/target-details.png)
 

@@ -2563,7 +2563,7 @@ function drawPace(){
 const MV_KEY = "mdocStageMap.movie";
 const MV_DEF = {size: "1920x1080", fps: 30, zoom: 6, tAtlas: 3, tToSq: 4, tSq: 2, tToTg: 4, hold: 3, tToView: 3, tPick: 0.8, viewZoom: 1, tiltAxis: true, tiltFps: 10, schematic: true, upright: true, level: true, turn: 0, first: "low",
   labels: [["Atlas", "Grid overview"], ["Square map", "Selecting the acquisition position"], ["Acquisition position", "Tilt-series target"], ["Tilt series", ""]],
-  pLabels: [["Atlas", "Grid overview"], ["Square map", "Selecting the area"], ["Target selection", ""], ["Parallel Tilt Series Acquisition", ""]]};
+  pLabels: [["Atlas", "Grid overview"], ["Square map", "Selecting the area"], ["Target Selection", "Anchoring view"], ["Tilt Series Acquisition", "Parallel off-axis acquisition"]]};
 let mv = null;
 const mvEase = t => { t = Math.max(0, Math.min(1, t)); return t*t*(3 - 2*t); };
 const mvPt = (cam, x, y) => { const c = Math.cos(cam.f), sn = Math.sin(cam.f), dx = (x - cam.x)*cam.s, dy = ys()*(y - cam.y)*cam.s; return [cam.W/2 + dx*c + dy*sn, cam.H/2 - dx*sn + dy*c]; };
@@ -2573,7 +2573,9 @@ function mvCfg(){
   const c = {...MV_DEF, ...sv};
   const labs = (key) => MV_DEF[key].map((d, i) => Array.isArray(sv[key] && sv[key][i]) ? [String(sv[key][i][0] ?? d[0]), String(sv[key][i][1] ?? d[1])] : d.slice());
   c.labels = labs("labels"); c.pLabels = labs("pLabels");
-  if(c.pLabels[3][0] === "Tilt series") c.pLabels[3][0] = MV_DEF.pLabels[3][0];      // the earlier default
+  // labels still at an earlier default take the current one; labels you typed are kept
+  const oldDef = [[["Target selection", ""]], [["Tilt series", ""], ["Parallel Tilt Series Acquisition", ""]]];
+  [2, 3].forEach((i, j) => { if(oldDef[j].some(([a, b]) => c.pLabels[i][0] === a && c.pLabels[i][1] === b)) c.pLabels[i] = MV_DEF.pLabels[i].slice(); });
   return c;
 }
 function mvSaveCfg(){ const {start, low, high, zoom, tToTg, ...keep} = mv.cfg; try { localStorage.setItem(MV_KEY, JSON.stringify(keep)); } catch(e){} }

@@ -3955,7 +3955,8 @@ cv.addEventListener("pointermove", e => {
   } else {
     const it = hitTest(...p);
     if(it !== state.hover){ state.hover = it; render(); }
-    showTip(it, ...p);
+    // the tooltip only for exposures and tilt series: square maps and the atlas show their details when clicked
+    showTip(isImgItem(it) ? it : null, ...p);
   }
   const w = toWorld(...p);
   $("#cursor").textContent = `X ${w[0].toFixed(2)} µm   Y ${w[1].toFixed(2)} µm`;

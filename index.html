@@ -4019,6 +4019,7 @@ $("#openBtn").addEventListener("click", async () => {
   pendingType = null; $("#fileInput").value = ""; $("#fileInput").click();
 });
 $("#openFolder").addEventListener("click", chooseFolder);
+$("#fileInput").addEventListener("change", e => openFiles(e.target.files, pendingType));     // files picked with Open… without the server
 $("#folderInput").addEventListener("change", e => setDataFolder([...e.target.files].map(f => ({file: f, path: f.webkitRelativePath || f.name}))));
 $("#clearAll").addEventListener("click", clearAll);
 $("#corrRot").checked = corrRot;

@@ -29,6 +29,9 @@ before sending it (about 80x less data over the network); without numpy the view
 reads full pieces and shrinks them itself.
 """
 import argparse
+import errno
+import getpass
+import socket
 import atexit
 import json
 import os
@@ -580,11 +583,51 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_json({"path": api, "parent": parent, "dirs": dirs, "files": files, "truncated": truncated})
 
 
+DEFAULT_PORT = 8765
+
+
+def how_to_open(host, port):
+    """What to open, and (like Jupyter) the SSH command that forwards the port from your own computer."""
+    try:
+        user = getpass.getuser()
+    except Exception:
+        user = "you"
+    name = socket.getfqdn() or socket.gethostname()
+    if name.startswith("localhost") or "." not in name:
+        name = socket.gethostname() or name
+    ssh = os.environ.get("SSH_CONNECTION", "").split()
+    addr = ssh[2] if len(ssh) >= 4 else None          # the address you reached this computer at
+    target = f"{user}@{name}"
+    local = 8765 if port == DEFAULT_PORT else port
+    out = []
+    if ssh:
+        out.append("\n  You are logged in over SSH. To open the viewer from your own computer, forward the port")
+        out.append("  (the same as for a Jupyter notebook). On YOUR computer, in a new terminal, run:\n")
+    else:
+        out.append(f"\n  On this computer, open  http://localhost:{port}\n")
+        out.append("  From another computer, forward the port over SSH (the same as for a Jupyter notebook).")
+        out.append("  On that computer, in a terminal, run:\n")
+    out.append(f"      ssh -N -L {local}:localhost:{port} {target}")
+    if addr and addr != name:
+        out.append(f"      (or: ssh -N -L {local}:localhost:{port} {user}@{addr})")
+    out.append(f"\n  leave it running, then open  http://localhost:{local}  in your browser there.")
+    out.append(f"  Through a gateway, add  -J you@gateway.  If port {local} is busy on your computer, use another")
+    out.append(f"  local port, e.g.  ssh -N -L 9000:localhost:{port} {target}  and open http://localhost:9000.")
+    if host in ("0.0.0.0", ""):
+        out.append(f"\n  Without SSH, on the same network:  http://{name}:{port}")
+    elif host not in ("127.0.0.1", "localhost"):
+        out.append(f"\n  Without SSH, on the same network:  http://{host}:{port}")
+    if ssh:
+        out.append(f"\n  (On this computer itself: http://localhost:{port})")
+    out.append("")
+    return "\n".join(out)
+
+
 def main():
     global HTML_PATH, VERBOSE, WRITABLE, FFMPEG
     ap = argparse.ArgumentParser(description="Serve mdoc Stage Map and SerialEM data folders (read-only except session .json files).")
     ap.add_argument("roots", nargs="+", help="data folders to share")
-    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--port", type=int, default=None, help="port to listen on (default 8765, or the next free one)")
     ap.add_argument("--host", default="127.0.0.1", help="127.0.0.1 (default) = this computer only; 0.0.0.0 = whole network")
     ap.add_argument("--html", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"),
                     help="path to the viewer page (default: index.html next to this script)")
@@ -611,14 +654,28 @@ def main():
         print(f"Warning: viewer page not found at {HTML_PATH}", file=sys.stderr)
 
     atexit.register(lambda: [movie_drop(k) for k in list(MOVIES)])     # no temporary movie folders left behind
-    srv = ThreadingHTTPServer((a.host, a.port), Handler)
+    srv, port = None, a.port or DEFAULT_PORT
+    # like Jupyter: if the default port is taken, use the next free one; a port asked for explicitly must be free
+    for p in ([a.port] if a.port else range(DEFAULT_PORT, DEFAULT_PORT + 30)):
+        try:
+            srv, port = ThreadingHTTPServer((a.host, p), Handler), p
+            break
+        except OSError as e:
+            if e.errno not in (errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", -1)) and "in use" not in str(e).lower():
+                raise
+            if a.port:
+                sys.exit(f"Port {a.port} is already in use on this computer (another mdoc_server.py or Jupyter?). "
+                         f"Pick another with --port, or leave --port out to use the next free one.")
+    if srv is None:
+        sys.exit(f"Ports {DEFAULT_PORT}-{DEFAULT_PORT + 29} are all in use. Pick one with --port.")
     srv.daemon_threads = True
-    shown = "localhost" if a.host in ("127.0.0.1", "0.0.0.0", "") else a.host
     print(f"mdoc Stage Map server {VERSION}  (numpy {'found: pieces are shrunk on the server' if np is not None else 'not found: full pieces are sent'})")
     for n, r in ROOTS.items():
         print(f"  sharing  {n:<16} {r}")
     print("  movies   " + (f"encoded with {ffmpeg_path()}" if ffmpeg_path() else "ffmpeg not found (pass --ffmpeg PATH): the browser encodes them instead"))
-    print(f"\n  Open  http://{shown}:{a.port}\n")
+    if port != (a.port or DEFAULT_PORT):
+        print(f"  port     {DEFAULT_PORT} is in use, so {port} is used")
+    print(how_to_open(a.host, port))
     if a.host not in ("127.0.0.1", "localhost"):
         print("  Note: other computers on the network can read the shared folders"
               + (" and save session .json files in them.\n" if WRITABLE else ".\n"))

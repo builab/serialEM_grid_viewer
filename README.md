@@ -22,7 +22,7 @@ It is one HTML page (`index.html`) plus a small Python server (`mdoc_server.py`)
 - [Settings](#settings)
 - [Keyboard and mouse](#keyboard-and-mouse)
 - [Server options](#server-options)
-- [Running on a remote workstation](#running-on-a-remote-workstation)
+- [Running on a remote workstation (port forwarding)](#running-on-a-remote-workstation-port-forwarding)
 - [Requirements](#requirements)
 
 ## Quick start
@@ -71,7 +71,7 @@ python3 mdoc_server.py /path/to/your/serialEM/data --port 8765
 ssh -N -f -L localhost:8765:localhost:8765 user@remote_server
 ```
 
-Then open **http://localhost:8765** in Chrome, Edge or Firefox on your local machine.
+Then open **http://localhost:8765** in Chrome, Edge or Firefox on your local machine. When it starts, the server prints the exact `ssh` command for your workstation; see [Running on a remote workstation](#running-on-a-remote-workstation-port-forwarding) for the details and for troubleshooting.
 
 Alternatively, if the data is on your local computer, then start on the local computer. Then open **http://localhost:8765** in browser.
 
@@ -211,7 +211,7 @@ The collapsed **Settings** section in the sidebar holds:
 ```text
 python3 mdoc_server.py ROOT [ROOT ...] [options]
 
-  --port 8765          port to listen on
+  --port N             port to listen on (default 8765, or the next free one if it is taken)
   --host 127.0.0.1     127.0.0.1 = this computer only (default); 0.0.0.0 = whole network
   --html PATH          the viewer page (default: index.html next to the script)
   --read-only          never write anything (no session files, no movies)
@@ -221,7 +221,66 @@ python3 mdoc_server.py ROOT [ROOT ...] [options]
 
 Only the folders you list are reachable. Everything is read-only, except session `.json` files and movie `.mp4` files saved inside those folders. Requests that write need a JSON content type, so a page from another website cannot make your browser write files there. At start-up the server prints the shared folders and whether it found ffmpeg.
 
-## Requirements
+## Running on a remote workstation (port forwarding)
+
+This works like a Jupyter notebook (or CryoSPARC) on a remote machine: the server runs on the workstation that has the data, listening only on that machine, and an SSH tunnel brings its port to your own computer. Nothing needs to be opened in a firewall, and only people who can log in to the workstation can reach it.
+
+**1. Start the server on the workstation**
+
+```bash
+ssh you@workstation
+cd serialEM_grid_viewer
+python3 mdoc_server.py /path/to/your/serialEM/data
+```
+
+It prints the command for the next step, already filled in, for example:
+
+```text
+  You are logged in over SSH. To open the viewer from your own computer, forward the port
+  (the same as for a Jupyter notebook). On YOUR computer, in a new terminal, run:
+
+      ssh -N -L 8765:localhost:8765 you@workstation.lab.mcgill.ca
+      (or: ssh -N -L 8765:localhost:8765 you@10.0.4.17)
+
+  leave it running, then open  http://localhost:8765  in your browser there.
+```
+
+If port 8765 is already taken on the workstation (another user, or another copy of the server), it uses the next free port (8766, 8767 …) and prints the command with that port. To keep the server running after you log out, start it inside `tmux` or `screen`, or with `nohup python3 mdoc_server.py … &`.
+
+**2. Open the tunnel from your own computer**
+
+In a terminal on your own computer (macOS and Linux Terminal, or Windows PowerShell, which includes `ssh`):
+
+```bash
+ssh -N -L 8765:localhost:8765 you@workstation
+```
+
+- `-L 8765:localhost:8765` forwards port 8765 on your computer to port 8765 on the workstation. If the server printed another port, use it on the right-hand side.
+- `-N` opens the tunnel without a shell. The command seems to hang: that is the tunnel. Leave the terminal open; Ctrl+C closes it.
+- Add `-f` (`ssh -N -f -L …`) to run the tunnel in the background instead. Close it later with `pkill -f "ssh -N -f -L 8765"`.
+
+**3. Open the viewer:** **http://localhost:8765** in Chrome, Edge or Firefox on your own computer.
+
+**Variations**
+
+| Situation | What to do |
+|---|---|
+| Port 8765 is in use on your own computer (e.g. a local Jupyter) | Use another local port on the left: `ssh -N -L 9000:localhost:8765 you@workstation`, then open http://localhost:9000 |
+| The workstation is reached through a gateway | `ssh -N -J you@gateway -L 8765:localhost:8765 you@workstation` |
+| You use it often | Add to `~/.ssh/config` on your computer, then `ssh -N grid-viewer` is enough:<br>`Host grid-viewer`<br>`  HostName workstation.lab.mcgill.ca`<br>`  User you`<br>`  LocalForward 8765 localhost:8765` |
+| Windows with PuTTY or MobaXterm | Connection → SSH → Tunnels: source port `8765`, destination `localhost:8765`, Add, then connect |
+| VS Code Remote-SSH | Start the server in VS Code's terminal on the workstation; VS Code forwards the port by itself (Ports tab) |
+| Everyone on the lab network should reach it without SSH | `python3 mdoc_server.py … --host 0.0.0.0`, then http://workstation:8765. Anyone who can reach the port can read the shared folders; add `--read-only` if they should not save files |
+
+**Troubleshooting**
+
+| Message or symptom | Cause and fix |
+|---|---|
+| `bind [127.0.0.1]:8765: Address already in use` on your computer | Something already uses 8765 locally (often an earlier tunnel still running). Close it (`pkill -f "ssh -N"`) or use another local port, as above |
+| `channel 2: open failed: connect failed: Connection refused` | The tunnel works but nothing listens on that port on the workstation: the server is not running, or it printed a different port. Check its output and match the right-hand port |
+| The page does not load at all | The tunnel is not open (check the `ssh` terminal), or you opened a different local port than the left-hand one in `-L` |
+| `Port 8765 is already in use on this computer` when starting the server | You asked for that port with `--port` and it is taken. Leave `--port` out to use the next free one |
+
 
 - **Browser:** a current Chrome, Edge or Firefox. Encoding movies in the browser needs WebCodecs (Chrome or Edge).
 - **Server:** Python 3.7 or newer.

@@ -602,10 +602,10 @@ def how_to_open(host, port):
     out = []
     if ssh:
         out.append("\n  You are logged in over SSH. To open the viewer from your own computer, forward the port")
-        out.append("  (the same as for a Jupyter notebook). On YOUR computer, in a new terminal, run:\n")
+        out.append(". On YOUR computer, in a new terminal, run:\n")
     else:
         out.append(f"\n  On this computer, open  http://localhost:{port}\n")
-        out.append("  From another computer, forward the port over SSH (the same as for a Jupyter notebook).")
+        out.append("  From another computer, forward the port over SSH.")
         out.append("  On that computer, in a terminal, run:\n")
     out.append(f"      ssh -N -L {local}:localhost:{port} {target}")
     if addr and addr != name:
@@ -655,7 +655,7 @@ def main():
 
     atexit.register(lambda: [movie_drop(k) for k in list(MOVIES)])     # no temporary movie folders left behind
     srv, port = None, a.port or DEFAULT_PORT
-    # like Jupyter: if the default port is taken, use the next free one; a port asked for explicitly must be free
+    # if the default port is taken, use the next free one; a port asked for explicitly must be free
     for p in ([a.port] if a.port else range(DEFAULT_PORT, DEFAULT_PORT + 30)):
         try:
             srv, port = ThreadingHTTPServer((a.host, p), Handler), p
@@ -664,7 +664,7 @@ def main():
             if e.errno not in (errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", -1)) and "in use" not in str(e).lower():
                 raise
             if a.port:
-                sys.exit(f"Port {a.port} is already in use on this computer (another mdoc_server.py or Jupyter?). "
+                sys.exit(f"Port {a.port} is already in use on this computer (another mdoc_server.py?). "
                          f"Pick another with --port, or leave --port out to use the next free one.")
     if srv is None:
         sys.exit(f"Ports {DEFAULT_PORT}-{DEFAULT_PORT + 29} are all in use. Pick one with --port.")
